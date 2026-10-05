@@ -371,6 +371,11 @@ export default function App() {
     showToast(`Saved recipe "${recipe.name}"!`);
   };
 
+  const handleUpdateRecipe = (updated: Recipe) => {
+    setRecipes(prev => prev.map(r => r.id === updated.id ? updated : r));
+    showToast(`Updated tags for "${updated.name}"`);
+  };
+
   const handleSelectForRecipeSearch = (ingredientName: string) => {
     setRecipeSearchQuery(ingredientName);
     setActiveTab('recipes');
@@ -421,6 +426,7 @@ export default function App() {
             onCookMeal={handleCookMeal}
             onAddPlannedMeal={handleAddPlannedMealFromRecipe}
             onAddNewRecipe={handleAddNewRecipe}
+            onUpdateRecipe={handleUpdateRecipe}
             initialSearchQuery={recipeSearchQuery}
           />
         )}

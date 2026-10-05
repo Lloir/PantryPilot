@@ -13,11 +13,13 @@ import {
   ChevronRight, 
   CalendarPlus, 
   Layers, 
-  CheckCircle2,
-  XCircle,
-  PlusCircle,
-  RotateCcw,
-  ChefHat
+  CheckCircle2, 
+  XCircle, 
+  PlusCircle, 
+  RotateCcw, 
+  ChefHat, 
+  Tag, 
+  X 
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { InventoryItem, Recipe, RecipeIngredient } from '../types';
@@ -30,11 +32,25 @@ interface RecipeDatabaseProps {
   onCookMeal: (recipe: Recipe, servingsCooked: number, costBreakdown: RecipeCostBreakdown) => void;
   onAddPlannedMeal: (recipe: Recipe, date: string, slot: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack', servings: number) => void;
   onAddNewRecipe: (recipe: Recipe) => void;
+  onUpdateRecipe?: (recipe: Recipe) => void;
   initialSearchQuery?: string;
 }
 
 const MEAL_TYPES = ['All', 'Breakfast', 'Lunch', 'Dinner', 'Snack'] as const;
 const CUISINES = ['All', 'Asian', 'Italian', 'Mexican', 'Mediterranean', 'American'] as const;
+
+const POPULAR_TAG_SUGGESTIONS = [
+  'Vegan',
+  'Quick',
+  'Kid-Friendly',
+  'High Protein',
+  'Vegetarian',
+  'Gluten-Free',
+  'Budget Friendly',
+  'Keto',
+  'Meal Prep',
+  'Expiry Saver'
+];
 
 export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   inventory,
@@ -42,17 +58,20 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   onCookMeal,
   onAddPlannedMeal,
   onAddNewRecipe,
+  onUpdateRecipe,
   initialSearchQuery = '',
 }) => {
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [stockAvailabilityFilter, setStockAvailabilityFilter] = useState<'All' | 'canCookNow' | 'missingOne'>('canCookNow');
   const [selectedMealType, setSelectedMealType] = useState<string>('All');
   const [selectedCuisine, setSelectedCuisine] = useState<string>('All');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<'recommendation' | 'cheapest' | 'fastest' | 'name'>('recommendation');
 
   // Modal states
   const [selectedRecipeDetail, setSelectedRecipeDetail] = useState<Recipe | null>(null);
   const [servingsOverride, setServingsOverride] = useState<number>(2);
+  const [detailNewTagInput, setDetailNewTagInput] = useState('');
 
   // Plan Meal Modal inside Recipe
   const [planningRecipe, setPlanningRecipe] = useState<Recipe | null>(null);
@@ -69,6 +88,8 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   const [newRecServings, setNewRecServings] = useState(2);
   const [newRecPrep, setNewRecPrep] = useState(10);
   const [newRecCook, setNewRecCook] = useState(15);
+  const [newRecTags, setNewRecTags] = useState<string[]>(['Quick', 'Kid-Friendly']);
+  const [customTagInput, setCustomTagInput] = useState('');
   const [newRecIngredients, setNewRecIngredients] = useState<{ name: string; quantity: number; unit: string }[]>([
     { name: '', quantity: 1, unit: 'count' }
   ]);
@@ -77,6 +98,27 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   // AI Suggestion State
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  // Collect all unique tags dynamically across recipes
+  const allAvailableTags = useMemo(() => {
+    const counts: Record<string, number> = {};
+    POPULAR_TAG_SUGGESTIONS.forEach(t => {
+      counts[t] = 0;
+    });
+
+    recipes.forEach(r => {
+      (r.tags || []).forEach(t => {
+        const clean = t.trim();
+        if (clean) {
+          counts[clean] = (counts[clean] || 0) + 1;
+        }
+      });
+    });
+
+    return Object.entries(counts)
+      .filter(([name, count]) => count > 0 || POPULAR_TAG_SUGGESTIONS.includes(name))
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [recipes]);
 
   // Calculate costs and matches for all recipes
   const recipeAnalyses = useMemo(() => {
@@ -93,6 +135,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
         const matchesSearch = recipe.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           recipe.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
           recipe.cuisine.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (recipe.tags && recipe.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()))) ||
           recipe.ingredients.some(ing => ing.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
         let matchesStock = true;
@@ -105,11 +148,16 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
         const matchesMealType = selectedMealType === 'All' || recipe.mealType === selectedMealType;
         const matchesCuisine = selectedCuisine === 'All' || recipe.cuisine === selectedCuisine;
 
-        return matchesSearch && matchesStock && matchesMealType && matchesCuisine;
+        // Custom tags matching: recipe must contain all selected tags
+        const matchesTags = selectedTags.length === 0 || selectedTags.every(st =>
+          (recipe.tags || []).some(rt => rt.toLowerCase() === st.toLowerCase())
+        );
+
+        return matchesSearch && matchesStock && matchesMealType && matchesCuisine && matchesTags;
       })
       .sort((a, b) => {
         if (sortBy === 'recommendation') {
-          // Weight: urgencyScore (expiring ingredients!) * 2 + canMakeNow (50) + matchPercentage + abundanceScore
+          // Weight: urgencyScore (expiring ingredients!) * 2 + canMakeNow (60) + matchPercentage + abundanceScore
           const scoreA = (a.breakdown.canMakeNow ? 60 : 0) + (a.breakdown.urgencyScore * 2) + a.breakdown.matchPercentage + a.breakdown.abundanceScore;
           const scoreB = (b.breakdown.canMakeNow ? 60 : 0) + (b.breakdown.urgencyScore * 2) + b.breakdown.matchPercentage + b.breakdown.abundanceScore;
           return scoreB - scoreA;
@@ -125,7 +173,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
         }
         return 0;
       });
-  }, [recipeAnalyses, searchQuery, stockAvailabilityFilter, selectedMealType, selectedCuisine, sortBy]);
+  }, [recipeAnalyses, searchQuery, stockAvailabilityFilter, selectedMealType, selectedCuisine, selectedTags, sortBy]);
 
   // High priority "Urgent Expiry Saver" recipes
   const urgentRecipes = useMemo(() => {
@@ -134,9 +182,20 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
       .sort((a, b) => b.breakdown.urgencyScore - a.breakdown.urgencyScore);
   }, [recipeAnalyses]);
 
+  const handleToggleTag = (tag: string) => {
+    setSelectedTags(prev => 
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const handleClearTags = () => {
+    setSelectedTags([]);
+  };
+
   const handleOpenDetail = (recipe: Recipe) => {
     setSelectedRecipeDetail(recipe);
     setServingsOverride(recipe.servings);
+    setDetailNewTagInput('');
   };
 
   const handleCookFromDetail = () => {
@@ -171,7 +230,6 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
       if (generated && generated.length > 0) {
         generated.forEach(r => onAddNewRecipe(r));
         setStockAvailabilityFilter('All');
-        // Confetti!
         confetti({ particleCount: 50, spread: 50 });
       }
     } catch (err: any) {
@@ -180,6 +238,50 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
     } finally {
       setIsGeneratingAi(false);
     }
+  };
+
+  // Add custom tag in custom recipe modal
+  const handleAddTagToNewRecipe = (tag: string) => {
+    const trimmed = tag.trim();
+    if (!trimmed) return;
+    if (!newRecTags.some(t => t.toLowerCase() === trimmed.toLowerCase())) {
+      setNewRecTags([...newRecTags, trimmed]);
+    }
+    setCustomTagInput('');
+  };
+
+  const handleRemoveTagFromNewRecipe = (tagToRemove: string) => {
+    setNewRecTags(newRecTags.filter(t => t !== tagToRemove));
+  };
+
+  // Add/remove tag on an existing recipe in Detail Modal
+  const handleAddTagToDetailRecipe = (tag: string) => {
+    if (!selectedRecipeDetail) return;
+    const trimmed = tag.trim();
+    if (!trimmed) return;
+
+    const currentTags = selectedRecipeDetail.tags || [];
+    if (currentTags.some(t => t.toLowerCase() === trimmed.toLowerCase())) return;
+
+    const updatedRecipe: Recipe = {
+      ...selectedRecipeDetail,
+      tags: [...currentTags, trimmed],
+    };
+
+    setSelectedRecipeDetail(updatedRecipe);
+    setDetailNewTagInput('');
+    onUpdateRecipe?.(updatedRecipe);
+  };
+
+  const handleRemoveTagFromDetailRecipe = (tagToRemove: string) => {
+    if (!selectedRecipeDetail) return;
+    const updatedRecipe: Recipe = {
+      ...selectedRecipeDetail,
+      tags: (selectedRecipeDetail.tags || []).filter(t => t !== tagToRemove),
+    };
+
+    setSelectedRecipeDetail(updatedRecipe);
+    onUpdateRecipe?.(updatedRecipe);
   };
 
   const handleSaveCustomRecipe = (e: React.FormEvent) => {
@@ -211,7 +313,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
       cookTimeMinutes: newRecCook,
       ingredients: validIngredients,
       instructions: steps.length > 0 ? steps : ['Cook and enjoy your meal!'],
-      tags: ['Custom Recipe'],
+      tags: newRecTags.length > 0 ? newRecTags : ['Custom Recipe'],
     };
 
     onAddNewRecipe(recipe);
@@ -219,6 +321,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
     // Reset form
     setNewRecName('');
     setNewRecDesc('');
+    setNewRecTags(['Quick', 'Kid-Friendly']);
     setNewRecIngredients([{ name: '', quantity: 1, unit: 'count' }]);
     setNewRecInstructions('');
   };
@@ -311,7 +414,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search recipes by title, ingredient (e.g. spinach, chicken), or cuisine..."
+              placeholder="Search recipes by title, tag (e.g. Vegan, Quick), ingredient, or cuisine..."
               className="w-full pl-10 pr-4 py-2 bg-stone-50 border border-stone-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 focus:bg-white"
             />
             {searchQuery && (
@@ -417,6 +520,72 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
             </div>
           </div>
         </div>
+
+        {/* CUSTOM TAGS FILTERING BAR */}
+        <div className="pt-3 border-t border-stone-100 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Tag className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">
+                Filter by Custom Tags
+              </span>
+              {selectedTags.length > 0 && (
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  {selectedTags.length} active
+                </span>
+              )}
+            </div>
+
+            {selectedTags.length > 0 && (
+              <button
+                onClick={handleClearTags}
+                className="text-xs font-semibold text-stone-400 hover:text-stone-700 flex items-center space-x-1"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Clear Tags</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto py-0.5">
+            {/* All Tags Option */}
+            <button
+              onClick={handleClearTags}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                selectedTags.length === 0
+                  ? 'bg-stone-900 text-white shadow-2xs'
+                  : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+              }`}
+            >
+              All Tags
+            </button>
+
+            {/* Individual Tag Chips */}
+            {allAvailableTags.map(([tagName, count]) => {
+              const isSelected = selectedTags.includes(tagName);
+
+              return (
+                <button
+                  key={tagName}
+                  onClick={() => handleToggleTag(tagName)}
+                  className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                    isSelected
+                      ? 'bg-emerald-600 text-white shadow-2xs ring-1 ring-emerald-600 font-bold'
+                      : 'bg-stone-100 text-stone-700 hover:bg-emerald-50 hover:text-emerald-800 border border-stone-200/80'
+                  }`}
+                >
+                  <span>{tagName}</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                    isSelected ? 'bg-emerald-700 text-white' : 'bg-stone-200 text-stone-600'
+                  }`}>
+                    {count}
+                  </span>
+                  {isSelected && <X className="w-3 h-3 ml-0.5" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* Recipe Cards Grid */}
@@ -427,14 +596,25 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
           </div>
           <h3 className="text-base font-semibold text-stone-900">No recipes matched your criteria</h3>
           <p className="text-xs text-stone-500 max-w-sm mx-auto">
-            Try switching filter to "All Recipes" or click the Gemini AI button to generate brand new meals from your ingredients!
+            {selectedTags.length > 0 
+              ? `No recipes currently match tag(s): "${selectedTags.join(', ')}". Try clearing tag filters or add custom tags to your recipes.`
+              : 'Try switching filter to "All Recipes" or click the Gemini AI button to generate brand new meals from your ingredients!'}
           </p>
           <div className="pt-2 flex justify-center gap-3">
+            {selectedTags.length > 0 && (
+              <button
+                onClick={handleClearTags}
+                className="px-3.5 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 text-xs font-bold rounded-lg"
+              >
+                Clear Tag Filters
+              </button>
+            )}
             <button
               onClick={() => {
                 setStockAvailabilityFilter('All');
                 setSelectedMealType('All');
                 setSelectedCuisine('All');
+                setSelectedTags([]);
                 setSearchQuery('');
               }}
               className="px-3.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-lg"
@@ -494,6 +674,33 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                   <p className="text-xs text-stone-500 mt-1 line-clamp-2">
                     {recipe.description}
                   </p>
+
+                  {/* Recipe Custom Tags Badges */}
+                  {recipe.tags && recipe.tags.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-1 items-center">
+                      {recipe.tags.map((tag, tIdx) => {
+                        const isTagActive = selectedTags.includes(tag);
+                        return (
+                          <button
+                            key={tIdx}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleTag(tag);
+                            }}
+                            className={`text-[10px] font-medium px-2 py-0.5 rounded-md flex items-center space-x-1 transition-colors ${
+                              isTagActive
+                                ? 'bg-emerald-600 text-white font-bold'
+                                : 'bg-stone-100 hover:bg-emerald-100 hover:text-emerald-800 text-stone-600'
+                            }`}
+                            title={`Filter by tag: ${tag}`}
+                          >
+                            <Tag className="w-2.5 h-2.5 opacity-70" />
+                            <span>{tag}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {/* Expiring Ingredients Alert Badge */}
                   {hasExpiringIng && (
@@ -619,6 +826,84 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
               {/* Body */}
               <div className="p-6 overflow-y-auto space-y-6 flex-1 text-sm">
                 <p className="text-xs text-stone-600 leading-relaxed">{selectedRecipeDetail.description}</p>
+
+                {/* Custom Tags Section in Recipe Detail Modal (Add/Remove Tags) */}
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-stone-700 uppercase tracking-wider flex items-center space-x-1.5">
+                      <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Recipe Tags</span>
+                    </span>
+                    <span className="text-[11px] text-stone-400">Click ✕ to remove or add new tags below</span>
+                  </div>
+
+                  {/* Current Tags Chips */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {(selectedRecipeDetail.tags || []).map((tag, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-flex items-center space-x-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200"
+                      >
+                        <span>{tag}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTagFromDetailRecipe(tag)}
+                          className="hover:text-red-700 p-0.5"
+                          title="Remove tag"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Add Tag Row */}
+                  <div className="pt-1.5 flex flex-wrap items-center gap-2">
+                    {/* Quick Suggestions */}
+                    <div className="flex flex-wrap gap-1">
+                      {POPULAR_TAG_SUGGESTIONS.slice(0, 5).map(suggestedTag => {
+                        const alreadyHas = (selectedRecipeDetail.tags || []).some(t => t.toLowerCase() === suggestedTag.toLowerCase());
+                        if (alreadyHas) return null;
+
+                        return (
+                          <button
+                            key={suggestedTag}
+                            type="button"
+                            onClick={() => handleAddTagToDetailRecipe(suggestedTag)}
+                            className="text-[10px] font-medium bg-white hover:bg-emerald-50 text-stone-700 hover:text-emerald-800 border border-stone-200 px-2 py-0.5 rounded-md transition-colors"
+                          >
+                            + {suggestedTag}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Custom Tag Input */}
+                    <div className="flex items-center space-x-1 ml-auto">
+                      <input
+                        type="text"
+                        placeholder="Add custom tag..."
+                        value={detailNewTagInput}
+                        onChange={(e) => setDetailNewTagInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddTagToDetailRecipe(detailNewTagInput);
+                          }
+                        }}
+                        className="px-2.5 py-1 text-xs border border-stone-300 rounded-lg bg-white w-32 focus:ring-1 focus:ring-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleAddTagToDetailRecipe(detailNewTagInput)}
+                        disabled={!detailNewTagInput.trim()}
+                        className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Servings Stepper & Cost Metric Highlights */}
                 <div className="grid grid-cols-3 gap-3 bg-stone-50 p-4 rounded-xl border border-stone-200">
@@ -829,7 +1114,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
         </div>
       )}
 
-      {/* Create Custom Recipe Modal */}
+      {/* Create Custom Recipe Modal (with Custom Tags) */}
       {isCreateRecipeOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-stone-200 max-h-[90vh] overflow-y-auto">
@@ -874,6 +1159,82 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                     placeholder="e.g. Italian, Mexican, Asian"
                     className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
                   />
+                </div>
+              </div>
+
+              {/* CUSTOM TAGS INPUT SECTION */}
+              <div className="space-y-2 p-3 bg-stone-50 rounded-xl border border-stone-200">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-stone-700 uppercase tracking-wider flex items-center space-x-1.5">
+                    <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Custom Tags (e.g. 'Vegan', 'Quick', 'Kid-Friendly')</span>
+                  </label>
+                </div>
+
+                {/* Current Selected Tags Chips */}
+                <div className="flex flex-wrap gap-1.5 min-h-6">
+                  {newRecTags.map((tag, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center space-x-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200"
+                    >
+                      <span>{tag}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTagFromNewRecipe(tag)}
+                        className="hover:text-red-700 p-0.5"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+
+                {/* Popular Tag Clickable Suggestions */}
+                <div className="space-y-1 pt-1">
+                  <span className="text-[10px] text-stone-500 font-semibold block">Quick Add Suggestions:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {POPULAR_TAG_SUGGESTIONS.map(tagSuggestion => {
+                      const isAdded = newRecTags.some(t => t.toLowerCase() === tagSuggestion.toLowerCase());
+                      if (isAdded) return null;
+
+                      return (
+                        <button
+                          key={tagSuggestion}
+                          type="button"
+                          onClick={() => handleAddTagToNewRecipe(tagSuggestion)}
+                          className="text-[10px] font-medium bg-white hover:bg-emerald-50 text-stone-700 hover:text-emerald-800 border border-stone-200 px-2 py-0.5 rounded-md transition-colors"
+                        >
+                          + {tagSuggestion}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Custom Tag Typing Field */}
+                <div className="flex items-center space-x-2 pt-1">
+                  <input
+                    type="text"
+                    placeholder="Type custom tag name and press Enter..."
+                    value={customTagInput}
+                    onChange={(e) => setCustomTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddTagToNewRecipe(customTagInput);
+                      }
+                    }}
+                    className="flex-1 px-3 py-1.5 border border-stone-300 rounded-lg text-xs bg-white focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddTagToNewRecipe(customTagInput)}
+                    disabled={!customTagInput.trim()}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold"
+                  >
+                    Add Tag
+                  </button>
                 </div>
               </div>
 

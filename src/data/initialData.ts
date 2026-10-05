@@ -235,7 +235,7 @@ export const INITIAL_RECIPES: Recipe[] = [
     servings: 2,
     prepTimeMinutes: 10,
     cookTimeMinutes: 15,
-    tags: ['Quick', 'High Protein', 'Expiry Saver', 'Gluten-Free Option'],
+    tags: ['Quick', 'High Protein', 'Expiry Saver', 'Kid-Friendly'],
     ingredients: [
       { name: 'Boneless Skinless Chicken Breasts', quantity: 0.75, unit: 'lb' },
       { name: 'Organic Baby Spinach', quantity: 6, unit: 'oz' },
@@ -262,7 +262,7 @@ export const INITIAL_RECIPES: Recipe[] = [
     servings: 3,
     prepTimeMinutes: 8,
     cookTimeMinutes: 18,
-    tags: ['Comfort Food', 'Vegetarian', 'Budget Friendly'],
+    tags: ['Comfort Food', 'Vegetarian', 'Budget Friendly', 'Kid-Friendly'],
     ingredients: [
       { name: 'Barilla Penne Pasta', quantity: 10, unit: 'oz' },
       { name: 'Canned Crushed Tomatoes', quantity: 1, unit: 'can' },
@@ -314,7 +314,7 @@ export const INITIAL_RECIPES: Recipe[] = [
     servings: 1,
     prepTimeMinutes: 5,
     cookTimeMinutes: 10,
-    tags: ['Quick Lunch', 'Vegetarian', 'Uses Ripe Avocados'],
+    tags: ['Quick', 'Vegetarian', 'Uses Ripe Avocados', 'Kid-Friendly'],
     ingredients: [
       { name: 'Hass Avocados', quantity: 1, unit: 'count' },
       { name: 'Large Brown Eggs', quantity: 2, unit: 'count' },
@@ -338,7 +338,7 @@ export const INITIAL_RECIPES: Recipe[] = [
     servings: 2,
     prepTimeMinutes: 10,
     cookTimeMinutes: 16,
-    tags: ['High Protein', 'Meal Prep Friendly', 'Flavorful'],
+    tags: ['High Protein', 'Meal Prep Friendly', 'Flavorful', 'Quick'],
     ingredients: [
       { name: 'Boneless Skinless Chicken Breasts', quantity: 1.0, unit: 'lb' },
       { name: 'Red Bell Peppers', quantity: 2, unit: 'count' },
@@ -364,7 +364,7 @@ export const INITIAL_RECIPES: Recipe[] = [
     servings: 1,
     prepTimeMinutes: 4,
     cookTimeMinutes: 0,
-    tags: ['No Cook', 'High Protein', 'Expiry Saver'],
+    tags: ['No Cook', 'High Protein', 'Expiry Saver', 'Quick', 'Kid-Friendly'],
     ingredients: [
       { name: 'Greek Yogurt Plain', quantity: 8, unit: 'oz' },
       { name: 'Fresh Strawberries', quantity: 6, unit: 'oz' }
@@ -385,7 +385,7 @@ export const INITIAL_RECIPES: Recipe[] = [
     servings: 2,
     prepTimeMinutes: 8,
     cookTimeMinutes: 12,
-    tags: ['Pantry Staple', 'Budget Meal', 'Abundant Ingredients'],
+    tags: ['Pantry Staple', 'Budget Meal', 'Abundant Ingredients', 'Kid-Friendly', 'Quick'],
     ingredients: [
       { name: 'Jasmine Rice', quantity: 0.75, unit: 'lb' },
       { name: 'Large Brown Eggs', quantity: 3, unit: 'count' },
@@ -412,7 +412,7 @@ export const INITIAL_RECIPES: Recipe[] = [
     servings: 1,
     prepTimeMinutes: 6,
     cookTimeMinutes: 8,
-    tags: ['Quick Snack', 'Comfort Food', 'Uses Avocados'],
+    tags: ['Quick', 'Comfort Food', 'Uses Avocados', 'Kid-Friendly'],
     ingredients: [
       { name: 'Block Sharp Cheddar Cheese', quantity: 3, unit: 'oz' },
       { name: 'Hass Avocados', quantity: 1, unit: 'count' },
@@ -424,6 +424,32 @@ export const INITIAL_RECIPES: Recipe[] = [
       'Grate cheddar cheese.',
       'Heat oil in a skillet, melt cheese into a crispy golden lace crust or fold into tortillas if available.',
       'Serve crispy cheese with fresh guacamole on the side.'
+    ]
+  },
+  {
+    id: 'rec-9',
+    name: 'Garlic Spinach & Avocado Jasmine Rice Bowl',
+    description: 'A 100% plant-based, nutrient-packed warm rice bowl layered with wilted garlic spinach, creamy sliced avocado, and toasted sesame soy dressing.',
+    mealType: 'Dinner',
+    cuisine: 'Asian',
+    servings: 2,
+    prepTimeMinutes: 8,
+    cookTimeMinutes: 10,
+    tags: ['Vegan', 'Quick', 'Gluten-Free', 'Expiry Saver', 'Vegetarian'],
+    ingredients: [
+      { name: 'Organic Baby Spinach', quantity: 6, unit: 'oz' },
+      { name: 'Hass Avocados', quantity: 1, unit: 'count' },
+      { name: 'Fresh Garlic Bulbs', quantity: 1, unit: 'count' },
+      { name: 'Jasmine Rice', quantity: 0.5, unit: 'lb' },
+      { name: 'Soy Sauce', quantity: 1.5, unit: 'oz' },
+      { name: 'Extra Virgin Olive Oil', quantity: 1, unit: 'oz' }
+    ],
+    instructions: [
+      'Steam or warm jasmine rice and divide into two bowls.',
+      'Heat olive oil in a skillet over medium heat. Sauté minced garlic for 30 seconds until fragrant.',
+      'Add fresh baby spinach and toss vigorously for 1-2 minutes until just wilted.',
+      'Remove from heat, season with soy sauce, and spoon hot garlic spinach over the rice.',
+      'Top with ripe sliced avocado and serve immediately.'
     ]
   }
 ];
