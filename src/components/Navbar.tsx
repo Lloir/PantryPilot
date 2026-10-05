@@ -8,8 +8,10 @@ import {
   ScanLine, 
   Barcode, 
   PlusCircle,
-  AlertTriangle
+  AlertTriangle,
+  Smartphone
 } from 'lucide-react';
+import { usePWAInstall } from '../hooks/usePWAInstall';
 
 export type ActiveTab = 'inventory' | 'recipes' | 'planner' | 'shopping' | 'analytics';
 
@@ -23,6 +25,7 @@ interface NavbarProps {
   onOpenReceiptScanner: () => void;
   onOpenBarcodeScanner: () => void;
   onOpenAddItem: () => void;
+  onShowAndroidInstall?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -35,7 +38,10 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenReceiptScanner,
   onOpenBarcodeScanner,
   onOpenAddItem,
+  onShowAndroidInstall,
 }) => {
+  const { isInstallable, isInstalled, install } = usePWAInstall();
+
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-stone-200 shadow-xs">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -49,7 +55,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="flex items-center space-x-2">
                 <span className="text-xl font-bold tracking-tight text-stone-900">PantryPal</span>
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                  Smart Kitchen
+                  Android & Web
                 </span>
               </div>
               <p className="text-xs text-stone-500 hidden sm:block">Receipt Scanner • Inventory • Recipe Cost & Meal Planner</p>
@@ -58,6 +64,23 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Quick Action Buttons */}
           <div className="flex items-center space-x-2">
+            {!isInstalled && (
+              <button
+                onClick={() => {
+                  if (isInstallable) {
+                    install();
+                  } else {
+                    onShowAndroidInstall?.();
+                  }
+                }}
+                className="hidden sm:inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-lg text-emerald-900 bg-emerald-100/80 hover:bg-emerald-200 border border-emerald-300 transition-colors shadow-2xs"
+                title="Install Android App"
+              >
+                <Smartphone className="w-4 h-4 text-emerald-700" />
+                <span>Install App</span>
+              </button>
+            )}
+
             <button
               onClick={onOpenReceiptScanner}
               className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors shadow-2xs"

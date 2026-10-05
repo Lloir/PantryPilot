@@ -29,6 +29,9 @@ import { ShoppingListView } from './components/ShoppingListView';
 import { CostAnalytics } from './components/CostAnalytics';
 import { ReceiptScannerModal } from './components/ReceiptScannerModal';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
+import { AndroidInstallBanner } from './components/AndroidInstallBanner';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 export default function App() {
   // Navigation
@@ -39,6 +42,25 @@ export default function App() {
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Android shortcuts handling on mount
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const action = params.get('action');
+      const tab = params.get('tab');
+
+      if (action === 'scan-receipt') {
+        setIsReceiptModalOpen(true);
+      } else if (action === 'scan-barcode') {
+        setIsBarcodeModalOpen(true);
+      }
+
+      if (tab && ['inventory', 'recipes', 'planner', 'shopping', 'analytics'].includes(tab)) {
+        setActiveTab(tab as ActiveTab);
+      }
+    } catch (e) {}
+  }, []);
 
   // Core persistent state
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
@@ -382,10 +404,16 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-100/60 text-stone-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white pb-12">
+    <div className="min-h-screen bg-stone-100/60 text-stone-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white pb-24 md:pb-12">
+      {/* Android & PWA Installation Banner */}
+      <AndroidInstallBanner />
+
+      {/* Offline Mode Indicator */}
+      <OfflineIndicator />
+
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 bg-stone-900 text-white text-xs sm:text-sm font-semibold px-4 py-3 rounded-2xl shadow-xl border border-stone-800 flex items-center space-x-2 animate-bounce">
+        <div className="fixed bottom-20 md:bottom-5 right-5 z-50 bg-stone-900 text-white text-xs sm:text-sm font-semibold px-4 py-3 rounded-2xl shadow-xl border border-stone-800 flex items-center space-x-2 animate-bounce">
           <span>{toastMessage}</span>
         </div>
       )}
@@ -460,6 +488,18 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Mobile Android Bottom Navigation Bar */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        expiringCount={expiringCount}
+        readyToCookCount={readyToCookCount}
+        shoppingCount={shoppingList.length}
+        depletionWarningsCount={forecast.allDepletions.length}
+        onOpenReceiptScanner={() => setIsReceiptModalOpen(true)}
+        onOpenBarcodeScanner={() => setIsBarcodeModalOpen(true)}
+      />
 
       {/* Receipt Scanner Modal */}
       <ReceiptScannerModal
