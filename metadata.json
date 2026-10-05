@@ -1,0 +1,6 @@
+{
+  "name": "PantryPal - Smart Grocery, Receipt Scanner & Meal Cost Planner",
+  "description": "Scan grocery receipts and barcodes, manage real-time inventory, calculate recipe cooking costs, plan weekly meals with automated stock deduction forecasting, and get expiry-smart recipe recommendations.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
