@@ -55,7 +55,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="flex items-center space-x-2">
                 <span className="text-xl font-bold tracking-tight text-stone-900">PantryPal</span>
                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                  Android & Web
+                  Android App
                 </span>
               </div>
               <p className="text-xs text-stone-500 hidden sm:block">Receipt Scanner • Inventory • Recipe Cost & Meal Planner</p>

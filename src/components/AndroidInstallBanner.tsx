@@ -36,14 +36,14 @@ export const AndroidInstallBanner: React.FC<AndroidInstallBannerProps> = ({ onOp
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-xs sm:text-sm font-bold tracking-tight">
-                  {isAndroid ? 'Install PantryPal Android App' : 'Get the PantryPal Mobile App'}
+                  PantryPal Android App & APK Build
                 </span>
                 <span className="text-[10px] bg-emerald-400/20 border border-emerald-300/30 text-emerald-200 px-1.5 py-0.2 rounded-full font-semibold">
-                  Android & PWA
+                  Android Native & APK
                 </span>
               </div>
               <p className="text-[11px] text-emerald-100/80 hidden sm:block">
-                Install to your home screen for full-screen camera scanning, receipt OCR, and offline pantry access.
+                Download the complete Android Studio project (Kotlin/Compose) to compile your APK, or install directly on Android.
               </p>
             </div>
           </div>
