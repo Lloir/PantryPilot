@@ -1,64 +1,95 @@
-# PantryPilot
+# PantryPilot 🥫
 
-A self-hosted grocery receipt scanner, pantry inventory manager and recipe cost meal planner.
+Scan your grocery receipts, track what's in your kitchen, plan meals.
+Runs on your own server. Takes about 2 minutes to set up.
 
-- Live pantry inventory with expiry tracking
-- Receipt OCR scanning (powered by Gemini, optional)
-- Barcode lookup for packaged foods
-- Weekly meal planner with ingredient depletion forecasting
-- Cooking cost tracking and household analytics
+---
 
-## Install on Unraid (easiest)
+## 🟠 Install on Unraid
 
-1. Open the Unraid **Terminal** and run:
-   ```bash
-   mkdir -p /mnt/user/appdata/pantrypal && \
-   wget -O /boot/config/plugins/dockerMan/templates-user/my-PantryPal.xml \
-     https://raw.githubusercontent.com/Lloir/PantryPilot/main/unraid/my-PantryPal.xml
-   ```
-2. **Docker** tab -> **Add Container** -> choose **my-PantryPal** from the Template dropdown.
-3. Optionally paste a Gemini API key, then click **Apply**.
-4. Open `http://YOUR-UNRAID-IP:3000`.
+**Step 1.** Click the `>_` icon (top right of Unraid) to open the Terminal.
 
-More options (Compose, `docker run`) are in [UNRAID.md](UNRAID.md).
-
-## Run with Docker
+**Step 2.** Copy this whole thing, paste it in, hit Enter:
 
 ```bash
-docker run -d --name pantrypal --restart unless-stopped \
-  -p 3000:3000 \
-  -v pantrypal-data:/app/data \
-  -e GEMINI_API_KEY= \
-  ghcr.io/lloir/pantrypilot:latest
+mkdir -p /mnt/user/appdata/pantrypal && wget -O /boot/config/plugins/dockerMan/templates-user/my-PantryPal.xml https://raw.githubusercontent.com/Lloir/PantryPilot/main/unraid/my-PantryPal.xml
 ```
 
-Or with Compose: `docker compose up -d` (uses `docker-compose.yml`).
+**Step 3.** Click the **Docker** tab, then **Add Container**.
 
-## Configuration
+**Step 4.** At the top, open the **Template** dropdown and pick **my-PantryPal**.
 
-| Variable | Default | Description |
-|---|---|---|
-| `GEMINI_API_KEY` | _empty_ | Optional. Enables receipt OCR and AI recipe suggestions. |
-| `PORT` | `3000` | Port the app listens on inside the container. |
-| `DATA_DIR` | `/app/data` | Where data is stored. Mount a volume here to keep it. |
-| `NODE_ENV` | `production` | Node environment. |
+**Step 5.** Click **Apply**. Wait for it to finish.
 
-## The Docker image
+**Step 6.** Open your browser and go to:
 
-Images are built and published to `ghcr.io/lloir/pantrypilot` by
-`.github/workflows/docker-publish.yml` on every push to `main` and on `v*` tags
-(tags: `latest`, version, commit SHA). It can also be run manually from the Actions tab.
+```
+http://YOUR-UNRAID-IP:3000
+```
 
-If a pull is denied, the package is still private: the repo owner must set it to
-**Public** under GitHub -> Packages -> pantrypilot -> Package settings.
+Done. 🎉
 
-## Development
+> Got "access denied" when it pulls the image? Tell whoever shared this with you
+> to make the package public (see the bottom of this page).
+
+---
+
+## 🐳 Install with Docker (not Unraid)
+
+Copy, paste, Enter:
 
 ```bash
-bun install        # or npm install
-npm run dev        # starts server.ts with Vite
-npm run build      # production frontend build
-npm run lint       # type check
+docker run -d --name pantrypal --restart unless-stopped -p 3000:3000 -v pantrypal-data:/app/data ghcr.io/lloir/pantrypilot:latest
 ```
 
-Copy `.env.example` to `.env` and set `GEMINI_API_KEY` for local OCR.
+Then go to `http://localhost:3000`. Done. 🎉
+
+---
+
+## 🤖 Do I need a Gemini key?
+
+**No.** The app works without it.
+
+A key just turns on the AI extras (smarter receipt scanning, recipe ideas).
+Get a free one at https://aistudio.google.com/apikey, then:
+
+- **Unraid:** paste it in the **Gemini API Key** box when adding the container.
+- **Docker:** add `-e GEMINI_API_KEY=your_key_here` to the command above.
+
+---
+
+## 🔄 Update
+
+**Unraid:** Docker tab -> click the PantryPilot icon -> **Force Update**.
+
+**Docker:**
+
+```bash
+docker pull ghcr.io/lloir/pantrypilot:latest
+docker rm -f pantrypal
+docker run -d --name pantrypal --restart unless-stopped -p 3000:3000 -v pantrypal-data:/app/data ghcr.io/lloir/pantrypilot:latest
+```
+
+Your data is kept. It lives in the volume.
+
+---
+
+## 🆘 Something broke
+
+| Problem | Fix |
+|---|---|
+| Page won't load | Wait 30 seconds, refresh. Check the IP and `:3000`. |
+| Port 3000 already used | Change the **WebUI Port** to `8085` (Unraid) or use `-p 8085:3000` (Docker), then go to `:8085`. |
+| "Access denied" pulling image | Package is private. See below. |
+| See what's wrong | `docker logs pantrypal` |
+
+---
+
+## 🛠 For the person who owns the repo
+
+The image builds itself and goes to `ghcr.io/lloir/pantrypilot` every time you push to `main`.
+
+**One-time:** make it public so friends can pull it.
+GitHub -> your profile -> **Packages** -> **pantrypilot** -> **Package settings** -> **Change visibility** -> **Public**.
+
+More Unraid options (Compose etc.): see [UNRAID.md](UNRAID.md).
