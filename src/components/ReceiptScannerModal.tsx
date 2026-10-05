@@ -15,7 +15,6 @@ import {
   Clock
 } from 'lucide-react';
 import { ItemCategory, ReceiptParsedItem, ReceiptScanResult, StorageLocation } from '../types';
-import { SAMPLE_RECEIPTS } from '../data/initialData';
 import { scanReceiptApi } from '../services/apiService';
 
 interface ReceiptScannerModalProps {
@@ -129,15 +128,6 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
     }
   };
 
-  const loadSampleReceipt = (sampleId: string) => {
-    const sample = SAMPLE_RECEIPTS.find(s => s.id === sampleId);
-    if (!sample) return;
-    stopCamera();
-    setImagePreview(null);
-    setScanResult(JSON.parse(JSON.stringify(sample.data)));
-    setErrorMessage(null);
-  };
-
   const triggerScan = async (base64Image: string) => {
     setIsScanning(true);
     setErrorMessage(null);
@@ -146,9 +136,28 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
       setScanResult(result);
     } catch (err: any) {
       console.error('Scan error:', err);
-      // Fallback to sample 1 if server error so user isn't stuck
-      setScanResult(JSON.parse(JSON.stringify(SAMPLE_RECEIPTS[0].data)));
-      setErrorMessage('OCR notice: Used fallback parser. You can verify and edit the items below.');
+      // Clean fallback if server error so user isn't stuck
+      setScanResult({
+        storeName: 'Grocery Store',
+        purchaseDate: new Date().toISOString().split('T')[0],
+        subtotal: 0,
+        tax: 0,
+        total: 0,
+        confidenceScore: 0.5,
+        items: [
+          {
+            name: 'Grocery Item',
+            category: 'Produce',
+            quantity: 1,
+            unit: 'count',
+            unitPrice: 0,
+            totalPrice: 0,
+            estimatedShelfLifeDays: 7,
+            selected: true,
+          }
+        ]
+      });
+      setErrorMessage('Could not auto-detect items from receipt. You can manually enter details below.');
     } finally {
       setIsScanning(false);
     }
@@ -276,30 +285,6 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
 
         {/* Content Area */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
-          {/* Quick Sample Receipts Bar */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-stone-600 uppercase tracking-wider">
-                Instant Test Receipts (1-Click Demo):
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {SAMPLE_RECEIPTS.map(sample => (
-                <button
-                  key={sample.id}
-                  onClick={() => loadSampleReceipt(sample.id)}
-                  className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-stone-100 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 border border-stone-200 transition-all text-stone-700 shadow-2xs"
-                >
-                  <Store className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>{sample.name}</span>
-                  <span className="bg-stone-200 text-stone-700 px-1.5 py-0.2 rounded-full text-xs">
-                    {sample.itemsCount} items
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Upload or Camera Capture Box */}
           {!scanResult && (
             <div className="border-2 border-dashed border-stone-300 rounded-2xl p-6 text-center hover:border-emerald-500 transition-colors bg-stone-50/50">

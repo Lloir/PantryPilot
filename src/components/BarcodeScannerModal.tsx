@@ -297,29 +297,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             </div>
           )}
 
-          {/* Quick Sample Barcodes (for quick evaluation on laptop or simulator) */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-stone-600 uppercase tracking-wider">
-                Click Sample Barcode (Quick Test):
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {Object.values(COMMON_BARCODES_DATABASE).slice(0, 7).map(item => (
-                <button
-                  key={item.barcode}
-                  onClick={() => {
-                    setBarcodeInput(item.barcode);
-                    handleLookup(item.barcode);
-                  }}
-                  className="px-2.5 py-1 rounded-lg text-xs font-medium bg-stone-100 hover:bg-sky-50 hover:text-sky-700 border border-stone-200 transition-colors text-stone-700"
-                >
-                  {item.name.split(' ')[0]} {item.name.split(' ')[1]} ({item.barcode.slice(-4)})
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Barcode Search Box */}
           <div className="flex space-x-2">
             <div className="relative flex-1">

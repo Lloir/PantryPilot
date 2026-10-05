@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -14,9 +15,72 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
 
+// Persistent data directory (mount to /mnt/user/appdata/pantrypal on Unraid)
+const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, 'data');
+const DB_FILE = path.join(DATA_DIR, 'pantry-db.json');
+
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (e) {
+  console.warn('Could not initialize DATA_DIR:', e);
+}
+
 // Increase body parser limit for receipt image uploads
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+
+// Healthcheck endpoint for Unraid / Docker / Kubernetes
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    isProduction: isProd
+  });
+});
+
+// Load persistent pantry database
+app.get('/api/pantry-data', (_req: Request, res: Response) => {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const content = fs.readFileSync(DB_FILE, 'utf-8');
+      return res.json(JSON.parse(content));
+    }
+  } catch (err) {
+    console.error('Error reading pantry-db.json:', err);
+  }
+  return res.json({
+    inventory: [],
+    recipes: [],
+    plannedMeals: [],
+    cookedLogs: [],
+    shoppingList: []
+  });
+});
+
+// Save persistent pantry database
+app.post('/api/pantry-data', (req: Request, res: Response) => {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    const data = {
+      inventory: req.body.inventory || [],
+      recipes: req.body.recipes || [],
+      plannedMeals: req.body.plannedMeals || [],
+      cookedLogs: req.body.cookedLogs || [],
+      shoppingList: req.body.shoppingList || [],
+      updatedAt: new Date().toISOString()
+    };
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    res.json({ success: true, savedAt: data.updatedAt });
+  } catch (err: any) {
+    console.error('Error saving pantry-db.json:', err);
+    res.status(500).json({ error: 'Failed to persist pantry data' });
+  }
+});
 
 // Server-side Gemini initialization
 const apiKey = process.env.GEMINI_API_KEY;

@@ -31,6 +31,7 @@ import { ReceiptScannerModal } from './components/ReceiptScannerModal';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
 import { AndroidInstallBanner } from './components/AndroidInstallBanner';
 import { AndroidAPKModal } from './components/AndroidAPKModal';
+import { UnraidModal } from './components/UnraidModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
 
@@ -43,6 +44,7 @@ export default function App() {
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
   const [isAPKModalOpen, setIsAPKModalOpen] = useState(false);
+  const [isUnraidModalOpen, setIsUnraidModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Android shortcuts handling on mount
@@ -64,7 +66,27 @@ export default function App() {
     } catch (e) {}
   }, []);
 
-  // Core persistent state
+  // Ensure any previous test data is wiped from browser storage
+  useEffect(() => {
+    try {
+      const version = localStorage.getItem('pantrypal_clean_v3');
+      if (!version) {
+        localStorage.removeItem('pantrypal_inventory');
+        localStorage.removeItem('pantrypal_recipes');
+        localStorage.removeItem('pantrypal_planned_meals');
+        localStorage.removeItem('pantrypal_cooked_logs');
+        localStorage.removeItem('pantrypal_shopping_list');
+        localStorage.setItem('pantrypal_clean_v3', 'true');
+        setInventory([]);
+        setRecipes([]);
+        setPlannedMeals([]);
+        setCookedLogs([]);
+        setShoppingList([]);
+      }
+    } catch (e) {}
+  }, []);
+
+  // Core persistent state - initialized empty for clean user database
   const [inventory, setInventory] = useState<InventoryItem[]>(() => {
     try {
       const saved = localStorage.getItem('pantrypal_inventory');
@@ -102,9 +124,54 @@ export default function App() {
       const saved = localStorage.getItem('pantrypal_shopping_list');
       if (saved) return JSON.parse(saved);
     } catch (e) {}
-    // Initial generated from plan
-    return generateShoppingListFromMealPlan(INITIAL_INVENTORY, INITIAL_PLANNED_MEALS);
+    return [];
   });
+
+  // Sync with persistent backend (Unraid /app/data/pantry-db.json)
+  useEffect(() => {
+    fetch('/api/pantry-data')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data) {
+          if (Array.isArray(data.inventory) && data.inventory.length > 0) {
+            setInventory(data.inventory);
+          }
+          if (Array.isArray(data.recipes) && data.recipes.length > 0) {
+            setRecipes(data.recipes);
+          }
+          if (Array.isArray(data.plannedMeals) && data.plannedMeals.length > 0) {
+            setPlannedMeals(data.plannedMeals);
+          }
+          if (Array.isArray(data.cookedLogs) && data.cookedLogs.length > 0) {
+            setCookedLogs(data.cookedLogs);
+          }
+          if (Array.isArray(data.shoppingList) && data.shoppingList.length > 0) {
+            setShoppingList(data.shoppingList);
+          }
+        }
+      })
+      .catch(() => {
+        // Backend offline or local-only mode
+      });
+  }, []);
+
+  // Save to persistent server file on Unraid (debounced)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetch('/api/pantry-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          inventory,
+          recipes,
+          plannedMeals,
+          cookedLogs,
+          shoppingList,
+        }),
+      }).catch(() => {});
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [inventory, recipes, plannedMeals, cookedLogs, shoppingList]);
 
   // Sync to localStorage
   useEffect(() => {
@@ -136,6 +203,36 @@ export default function App() {
       localStorage.setItem('pantrypal_shopping_list', JSON.stringify(shoppingList));
     } catch (e) {}
   }, [shoppingList]);
+
+  // Reset database function
+  const handleClearAllData = () => {
+    if (window.confirm('Clear all data from your pantry? This will reset all inventory, recipes, meal plans, and logs to empty.')) {
+      setInventory([]);
+      setRecipes([]);
+      setPlannedMeals([]);
+      setCookedLogs([]);
+      setShoppingList([]);
+      try {
+        localStorage.removeItem('pantrypal_inventory');
+        localStorage.removeItem('pantrypal_recipes');
+        localStorage.removeItem('pantrypal_planned_meals');
+        localStorage.removeItem('pantrypal_cooked_logs');
+        localStorage.removeItem('pantrypal_shopping_list');
+      } catch (e) {}
+      fetch('/api/pantry-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          inventory: [],
+          recipes: [],
+          plannedMeals: [],
+          cookedLogs: [],
+          shoppingList: [],
+        }),
+      }).catch(() => {});
+      showToast('All database items cleared');
+    }
+  };
 
   // Toast feedback helper
   const showToast = (msg: string) => {
@@ -434,6 +531,8 @@ export default function App() {
           setActiveTab('inventory');
         }}
         onShowAndroidInstall={() => setIsAPKModalOpen(true)}
+        onOpenUnraidModal={() => setIsUnraidModalOpen(true)}
+        onClearAllData={handleClearAllData}
       />
 
       {/* Main Tab Content */}
@@ -525,6 +624,12 @@ export default function App() {
       <AndroidAPKModal
         isOpen={isAPKModalOpen}
         onClose={() => setIsAPKModalOpen(false)}
+      />
+
+      {/* Unraid OS & Docker Hosting Guide Modal */}
+      <UnraidModal
+        isOpen={isUnraidModalOpen}
+        onClose={() => setIsUnraidModalOpen(false)}
       />
     </div>
   );

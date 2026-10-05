@@ -9,7 +9,9 @@ import {
   Barcode, 
   PlusCircle,
   AlertTriangle,
-  Smartphone
+  Smartphone,
+  Server,
+  Trash2
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 
@@ -26,6 +28,8 @@ interface NavbarProps {
   onOpenBarcodeScanner: () => void;
   onOpenAddItem: () => void;
   onShowAndroidInstall?: () => void;
+  onOpenUnraidModal?: () => void;
+  onClearAllData?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -39,6 +43,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenBarcodeScanner,
   onOpenAddItem,
   onShowAndroidInstall,
+  onOpenUnraidModal,
+  onClearAllData,
 }) => {
   const { isInstallable, isInstalled, install } = usePWAInstall();
 
@@ -64,6 +70,15 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Quick Action Buttons */}
           <div className="flex items-center space-x-2">
+            <button
+              onClick={onOpenUnraidModal}
+              className="inline-flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-lg text-orange-900 bg-orange-100 hover:bg-orange-200 border border-orange-300 transition-colors shadow-2xs"
+              title="Host on Unraid Docker Container"
+            >
+              <Server className="w-4 h-4 text-orange-700 shrink-0" />
+              <span>Unraid</span>
+            </button>
+
             <button
               onClick={onShowAndroidInstall}
               className="inline-flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-bold rounded-lg text-emerald-950 bg-emerald-100/90 hover:bg-emerald-200 border border-emerald-300 transition-colors shadow-2xs"
@@ -192,6 +207,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             <LineChart className="w-4 h-4" />
             <span>Cost & Savings</span>
           </button>
+
+          {onClearAllData && (
+            <button
+              onClick={onClearAllData}
+              className="ml-auto inline-flex items-center space-x-1.5 px-2.5 py-1.5 text-xs text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors whitespace-nowrap"
+              title="Clear all data from database"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Clear Data</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

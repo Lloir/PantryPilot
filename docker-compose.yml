@@ -1,0 +1,24 @@
+services:
+  pantrypal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pantrypal:latest
+    container_name: pantrypal
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persistent storage on Unraid cache/array
+      - /mnt/user/appdata/pantrypal:/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATA_DIR=/app/data
+      # Optional: Add your Gemini API key for smart receipt OCR & recipe generation
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

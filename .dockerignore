@@ -1,0 +1,8 @@
+node_modules
+dist
+.git
+.github
+*.log
+android
+public/pantrypal-android-project.tar.gz
+data/*.json
