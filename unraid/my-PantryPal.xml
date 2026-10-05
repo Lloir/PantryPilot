@@ -1,14 +1,14 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>PantryPal</Name>
-  <Repository>pantrypal:latest</Repository>
-  <Registry>https://hub.docker.com/</Registry>
+  <Repository>ghcr.io/lloir/pantrypilot:latest</Repository>
+  <Registry>https://github.com/Lloir/PantryPilot/pkgs/container/pantrypilot</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/</Support>
-  <Project>https://github.com/</Project>
+  <Support>https://github.com/Lloir/PantryPilot/issues</Support>
+  <Project>https://github.com/Lloir/PantryPilot</Project>
   <Overview>
 PantryPal is a smart self-hosted grocery receipt scanner, pantry inventory manager, and recipe cost meal planner.
 Features:
@@ -16,12 +16,12 @@ Features:
 - Multimodal grocery receipt OCR scanner (powered by Gemini)
 - Barcode lookup database for packaged foods
 - Weekly meal planning calendar with ingredient depletion forecasting
-- Real cooking cost tracking & household analytics
+- Real cooking cost tracking and household analytics
 - Persistent storage to /mnt/user/appdata/pantrypal
   </Overview>
   <Category>HomeAutomation: Productivity: Tools:</Category>
   <WebUI>http://[IP]:[PORT:3000]/</WebUI>
-  <TemplateURL/>
+  <TemplateURL>https://raw.githubusercontent.com/Lloir/PantryPilot/main/unraid/my-PantryPal.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/refrigerator.svg</Icon>
   <ExtraParams>--restart unless-stopped</ExtraParams>
   <PostArgs/>

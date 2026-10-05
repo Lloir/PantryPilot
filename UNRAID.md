@@ -1,5 +1,26 @@
 # Hosting PantryPal on Unraid (Docker)
 
+## Quick start (about 1 minute)
+
+1. Open the Unraid **Terminal** (top-right `>_`) and paste:
+   ```bash
+   mkdir -p /mnt/user/appdata/pantrypal && \
+   wget -O /boot/config/plugins/dockerMan/templates-user/my-PantryPal.xml \
+     https://raw.githubusercontent.com/Lloir/PantryPilot/main/unraid/my-PantryPal.xml
+   ```
+2. Go to the **Docker** tab -> **Add Container** -> pick **my-PantryPal** from the Template dropdown.
+3. (Optional) paste a Gemini API key for receipt scanning, then click **Apply**.
+4. Open `http://YOUR-UNRAID-IP:3000`.
+
+The image is pulled automatically from `ghcr.io/lloir/pantrypilot:latest`.
+If the pull is denied, the repo owner needs to set the package to **Public** on GitHub.
+
+Prefer one command? `docker run -d --name pantrypal --restart unless-stopped -p 3000:3000 -v /mnt/user/appdata/pantrypal:/app/data -e GEMINI_API_KEY= ghcr.io/lloir/pantrypilot:latest`
+
+---
+
+## More detail
+
 PantryPal is fully optimized for self-hosting on **Unraid OS** via Docker. It supports persistent data storage, multi-user household syncing, and low resource usage.
 
 ---
@@ -17,7 +38,7 @@ PantryPal is fully optimized for self-hosting on **Unraid OS** via Docker. It su
 3. In the **Template** dropdown at the top, select **my-PantryPal**.
 4. Configure the settings:
    - **Name**: `pantrypal`
-   - **Repository**: `pantrypal:latest` (or your Docker Hub repository)
+   - **Repository**: `ghcr.io/lloir/pantrypilot:latest`
    - **WebUI Port**: `3000` (can map to any free port, e.g. `8085`)
    - **Appdata Storage**: `/mnt/user/appdata/pantrypal` $\rightarrow$ `/app/data`
    - **GEMINI_API_KEY**: *(Optional)* Your Gemini API key for receipt OCR & recipe AI.
@@ -34,8 +55,7 @@ If you use the **Compose.Manager** plugin on Unraid:
    ```yaml
    services:
      pantrypal:
-       build: .
-       image: pantrypal:latest
+       image: ghcr.io/lloir/pantrypilot:latest
        container_name: pantrypal
        restart: unless-stopped
        ports:
@@ -65,7 +85,7 @@ docker run -d \
   -e PORT=3000 \
   -e NODE_ENV=production \
   -e GEMINI_API_KEY="YOUR_KEY_HERE" \
-  pantrypal:latest
+  ghcr.io/lloir/pantrypilot:latest
 ```
 
 ---
