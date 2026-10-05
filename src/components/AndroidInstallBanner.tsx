@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { Download, Smartphone, X, CheckCircle, Sparkles, ExternalLink, HelpCircle } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 
-export const AndroidInstallBanner: React.FC = () => {
+interface AndroidInstallBannerProps {
+  onOpenAPKModal?: () => void;
+}
+
+export const AndroidInstallBanner: React.FC<AndroidInstallBannerProps> = ({ onOpenAPKModal }) => {
   const { isInstallable, isInstalled, isAndroid, isIOS, install } = usePWAInstall();
   const [showAndroidGuide, setShowAndroidGuide] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
@@ -11,6 +15,14 @@ export const AndroidInstallBanner: React.FC = () => {
   if (isInstalled || isDismissed) {
     return null;
   }
+
+  const handleOpenHub = () => {
+    if (onOpenAPKModal) {
+      onOpenAPKModal();
+    } else {
+      setShowAndroidGuide(true);
+    }
+  };
 
   return (
     <>
@@ -37,28 +49,18 @@ export const AndroidInstallBanner: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-2 shrink-0">
-            {isInstallable ? (
-              <button
-                onClick={install}
-                className="px-3.5 py-1.5 bg-white hover:bg-emerald-50 text-emerald-900 font-bold text-xs rounded-lg shadow-sm transition-all flex items-center space-x-1.5 active:scale-95"
-              >
-                <Download className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Install on Android</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowAndroidGuide(true)}
-                className="px-3.5 py-1.5 bg-white hover:bg-emerald-50 text-emerald-900 font-bold text-xs rounded-lg shadow-sm transition-all flex items-center space-x-1.5"
-              >
-                <Download className="w-3.5 h-3.5 text-emerald-700" />
-                <span>How to Install</span>
-              </button>
-            )}
+            <button
+              onClick={handleOpenHub}
+              className="px-3.5 py-1.5 bg-white hover:bg-emerald-50 text-emerald-900 font-bold text-xs rounded-lg shadow-sm transition-all flex items-center space-x-1.5 active:scale-95"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Get Android APK</span>
+            </button>
 
             <button
-              onClick={() => setShowAndroidGuide(true)}
+              onClick={handleOpenHub}
               className="p-1.5 text-emerald-200 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-              title="Android Installation Guide"
+              title="Android Installation Guide & APK"
             >
               <HelpCircle className="w-4 h-4" />
             </button>

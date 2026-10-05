@@ -64,26 +64,18 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Quick Action Buttons */}
           <div className="flex items-center space-x-2">
-            {!isInstalled && (
-              <button
-                onClick={() => {
-                  if (isInstallable) {
-                    install();
-                  } else {
-                    onShowAndroidInstall?.();
-                  }
-                }}
-                className="hidden sm:inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-lg text-emerald-900 bg-emerald-100/80 hover:bg-emerald-200 border border-emerald-300 transition-colors shadow-2xs"
-                title="Install Android App"
-              >
-                <Smartphone className="w-4 h-4 text-emerald-700" />
-                <span>Install App</span>
-              </button>
-            )}
+            <button
+              onClick={onShowAndroidInstall}
+              className="inline-flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-bold rounded-lg text-emerald-950 bg-emerald-100/90 hover:bg-emerald-200 border border-emerald-300 transition-colors shadow-2xs"
+              title="Get Android APK & Build Package"
+            >
+              <Smartphone className="w-4 h-4 text-emerald-700 shrink-0" />
+              <span>Android APK</span>
+            </button>
 
             <button
               onClick={onOpenReceiptScanner}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors shadow-2xs"
+              className="inline-flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors shadow-2xs"
               title="Scan Grocery Receipt"
             >
               <ScanLine className="w-4 h-4 text-emerald-700" />

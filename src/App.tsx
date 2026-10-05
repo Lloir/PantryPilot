@@ -30,6 +30,7 @@ import { CostAnalytics } from './components/CostAnalytics';
 import { ReceiptScannerModal } from './components/ReceiptScannerModal';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
 import { AndroidInstallBanner } from './components/AndroidInstallBanner';
+import { AndroidAPKModal } from './components/AndroidAPKModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
 
@@ -41,6 +42,7 @@ export default function App() {
   // Modals
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
+  const [isAPKModalOpen, setIsAPKModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Android shortcuts handling on mount
@@ -406,7 +408,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-stone-100/60 text-stone-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white pb-24 md:pb-12">
       {/* Android & PWA Installation Banner */}
-      <AndroidInstallBanner />
+      <AndroidInstallBanner onOpenAPKModal={() => setIsAPKModalOpen(true)} />
 
       {/* Offline Mode Indicator */}
       <OfflineIndicator />
@@ -431,6 +433,7 @@ export default function App() {
         onOpenAddItem={() => {
           setActiveTab('inventory');
         }}
+        onShowAndroidInstall={() => setIsAPKModalOpen(true)}
       />
 
       {/* Main Tab Content */}
@@ -516,6 +519,12 @@ export default function App() {
           handleAddItem(item);
           setIsBarcodeModalOpen(false);
         }}
+      />
+
+      {/* Android APK Download & Hub Modal */}
+      <AndroidAPKModal
+        isOpen={isAPKModalOpen}
+        onClose={() => setIsAPKModalOpen(false)}
       />
     </div>
   );

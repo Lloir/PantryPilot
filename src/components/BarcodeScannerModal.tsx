@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   X, 
   Barcode, 
@@ -78,11 +78,26 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const streamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<any>(null);
 
+  const stopCamera = useCallback(() => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setIsScanningCamera(false);
+  }, []);
+
   useEffect(() => {
     if (!isOpen) {
       stopCamera();
     }
-  }, [isOpen]);
+    return () => {
+      stopCamera();
+    };
+  }, [isOpen, stopCamera]);
 
   if (!isOpen) return null;
 
@@ -183,18 +198,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       setIsScanningCamera(false);
       setErrorMessage('Camera access was denied or not supported. You can enter or select a barcode below.');
     }
-  };
-
-  const stopCamera = () => {
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setIsScanningCamera(false);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
