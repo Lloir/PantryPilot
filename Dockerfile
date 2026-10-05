@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Install build dependencies
 COPY package*.json ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Copy source code and build frontend
 COPY . .
@@ -25,7 +25,7 @@ RUN apk add --no-cache curl
 
 # Copy dependencies and built assets
 COPY package*.json ./
-RUN npm install --omit=dev && npm cache clean --force
+RUN npm install --omit=dev --legacy-peer-deps && npm cache clean --force
 
 # Copy dist built in stage 1, server files, and runtime configs
 COPY --from=builder /app/dist ./dist
