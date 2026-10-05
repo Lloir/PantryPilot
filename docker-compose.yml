@@ -1,9 +1,6 @@
 services:
   pantrypal:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: pantrypal:latest
+    image: ghcr.io/lloir/pantrypilot:latest
     container_name: pantrypal
     restart: unless-stopped
     ports:
