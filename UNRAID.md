@@ -85,7 +85,7 @@ docker run -d \
   -e PORT=3000 \
   -e NODE_ENV=production \
   -e GEMINI_API_KEY="YOUR_KEY_HERE" \
-  pantrypal:latest
+  ghcr.io/lloir/pantrypilot:latest
 ```
 
 ---

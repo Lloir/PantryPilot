@@ -16,7 +16,7 @@ Features:
 - Multimodal grocery receipt OCR scanner (powered by Gemini)
 - Barcode lookup database for packaged foods
 - Weekly meal planning calendar with ingredient depletion forecasting
-- Real cooking cost tracking & household analytics
+- Real cooking cost tracking and household analytics
 - Persistent storage to /mnt/user/appdata/pantrypal
   </Overview>
   <Category>HomeAutomation: Productivity: Tools:</Category>
