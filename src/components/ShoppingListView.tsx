@@ -11,6 +11,7 @@ import {
   Calendar,
   AlertCircle
 } from 'lucide-react';
+import { UnitSelect } from './UnitSelect';
 import confetti from 'canvas-confetti';
 import { ItemCategory, ShoppingItem, StorageLocation } from '../types';
 
@@ -163,12 +164,10 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
               onChange={(e) => setNewItemQty(parseFloat(e.target.value) || 1)}
               className="w-14 px-2 py-2 border border-stone-300 rounded-lg text-sm text-center"
             />
-            <input
-              type="text"
-              placeholder="Unit"
+            <UnitSelect
               value={newItemUnit}
-              onChange={(e) => setNewItemUnit(e.target.value)}
-              className="w-16 px-2 py-2 border border-stone-300 rounded-lg text-sm"
+              onChange={setNewItemUnit}
+              className="w-24 px-2 py-2 border border-stone-300 rounded-lg text-sm bg-white"
             />
           </div>
           <button

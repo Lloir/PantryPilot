@@ -11,7 +11,9 @@ import {
   AlertTriangle,
   Smartphone,
   Server,
-  Trash2
+  Trash2,
+  LogOut,
+  Scale
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 
@@ -30,6 +32,9 @@ interface NavbarProps {
   onShowAndroidInstall?: () => void;
   onOpenUnraidModal?: () => void;
   onClearAllData?: () => void;
+  measureMode: 'mass' | 'volume';
+  onChangeMeasureMode: (mode: 'mass' | 'volume') => void;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -45,6 +50,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onShowAndroidInstall,
   onOpenUnraidModal,
   onClearAllData,
+  measureMode,
+  onChangeMeasureMode,
+  onLogout,
 }) => {
   const { isInstallable, isInstalled, install } = usePWAInstall();
 
@@ -208,10 +216,37 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>Cost & Savings</span>
           </button>
 
+          <label
+            className="ml-auto inline-flex items-center space-x-1.5 px-2 py-1 text-xs text-stone-500 whitespace-nowrap"
+            title="Pick one way to measure everything. Weight and volume are never converted into each other."
+          >
+            <Scale className="w-3.5 h-3.5" />
+            <span>Measure by</span>
+            <select
+              value={measureMode}
+              onChange={(e) => onChangeMeasureMode(e.target.value as 'mass' | 'volume')}
+              className="bg-stone-100 border border-stone-200 rounded-md px-1.5 py-0.5 text-xs font-semibold text-stone-700"
+            >
+              <option value="mass">Weight (g, oz, lb)</option>
+              <option value="volume">Volume (ml, cup, fl oz)</option>
+            </select>
+          </label>
+
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 text-xs text-stone-400 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition-colors whitespace-nowrap"
+              title="Sign out"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign out</span>
+            </button>
+          )}
+
           {onClearAllData && (
             <button
               onClick={onClearAllData}
-              className="ml-auto inline-flex items-center space-x-1.5 px-2.5 py-1.5 text-xs text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors whitespace-nowrap"
+              className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 text-xs text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors whitespace-nowrap"
               title="Clear all data from database"
             >
               <Trash2 className="w-3.5 h-3.5" />

@@ -1,59 +1,9 @@
 import { InventoryItem, Recipe, RecipeIngredient } from '../types';
+import { convertQuantity } from './units';
 
-// Standard unit conversions
+// Unit conversion lives in utils/units.ts (same-kind only: no mass <-> volume).
 export function normalizeQuantity(quantity: number, fromUnit: string, toUnit: string): number | null {
-  const f = fromUnit.toLowerCase().trim();
-  const t = toUnit.toLowerCase().trim();
-
-  if (f === t) return quantity;
-
-  // Weight conversions
-  if ((f === 'lb' || f === 'lbs' || f === 'pound' || f === 'pounds') && (t === 'oz' || t === 'ounce' || t === 'ounces')) {
-    return quantity * 16;
-  }
-  if ((f === 'oz' || f === 'ounce' || f === 'ounces') && (t === 'lb' || t === 'lbs' || t === 'pound' || t === 'pounds')) {
-    return quantity / 16;
-  }
-  if ((f === 'kg' || f === 'kilogram') && (t === 'g' || t === 'gram' || t === 'grams')) {
-    return quantity * 1000;
-  }
-  if ((f === 'g' || f === 'gram' || f === 'grams') && (t === 'kg' || t === 'kilogram')) {
-    return quantity / 1000;
-  }
-  if ((f === 'lb' || f === 'lbs') && (t === 'g' || t === 'grams')) {
-    return quantity * 453.592;
-  }
-  if ((f === 'g' || f === 'grams') && (t === 'lb' || t === 'lbs')) {
-    return quantity / 453.592;
-  }
-
-  // Volume conversions
-  if ((f === 'cup' || f === 'cups') && (t === 'oz' || t === 'fl oz')) {
-    return quantity * 8;
-  }
-  if ((f === 'oz' || f === 'fl oz') && (t === 'cup' || t === 'cups')) {
-    return quantity / 8;
-  }
-  if ((f === 'tbsp' || f === 'tablespoon' || f === 'tablespoons') && (t === 'oz' || t === 'fl oz')) {
-    return quantity * 0.5;
-  }
-  if ((f === 'tsp' || f === 'teaspoon' || f === 'teaspoons') && (t === 'oz' || t === 'fl oz')) {
-    return quantity * 0.166667;
-  }
-  if ((f === 'l' || f === 'liter' || f === 'liters') && (t === 'ml' || t === 'milliliter')) {
-    return quantity * 1000;
-  }
-  if ((f === 'ml' || t === 'milliliter') && (t === 'l' || t === 'liter')) {
-    return quantity / 1000;
-  }
-
-  // Count / pack aliases
-  const countUnits = ['count', 'item', 'items', 'each', 'piece', 'pieces', 'can', 'cans', 'pack', 'packs'];
-  if (countUnits.includes(f) && countUnits.includes(t)) {
-    return quantity;
-  }
-
-  return null; // Cannot directly convert
+  return convertQuantity(quantity, fromUnit, toUnit);
 }
 
 /**

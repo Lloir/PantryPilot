@@ -58,6 +58,32 @@ Get a free one at https://aistudio.google.com/apikey, then:
 
 ---
 
+## 🔐 Logging in
+
+PantryPal asks for a username and password.
+
+The first time it starts, it makes one login for you and prints it in the logs:
+
+```bash
+docker logs pantrypal
+```
+
+Look for `username: admin` and `password: ...`.
+
+The logins live in a plain text file in your data folder: `users.txt`
+(Unraid: `/mnt/user/appdata/pantrypal/users.txt`). One per line:
+
+```
+admin:your-password
+her-name:her-password
+```
+
+Edit it any time to add people or change passwords. No restart needed.
+
+> Want no login at all? Add the variable `AUTH_DISABLED=true`.
+
+---
+
 ## 🔄 Update
 
 **Unraid:** Docker tab -> click the PantryPilot icon -> **Force Update**.

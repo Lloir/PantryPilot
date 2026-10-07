@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   List
 } from 'lucide-react';
+import { UnitSelect } from './UnitSelect';
 import { InventoryItem, ItemCategory, StorageLocation } from '../types';
 
 interface InventoryManagerProps {
@@ -705,13 +706,10 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                 </div>
                 <div>
                   <label className="block font-semibold text-stone-700 mb-1">Unit</label>
-                  <input
-                    type="text"
-                    required
+                  <UnitSelect
                     value={newItemUnit}
-                    onChange={(e) => setNewItemUnit(e.target.value)}
-                    placeholder="oz, lb, count, can"
-                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
+                    onChange={setNewItemUnit}
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white"
                   />
                 </div>
                 <div>
@@ -837,11 +835,10 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                 </div>
                 <div>
                   <label className="block font-semibold text-stone-700 mb-1">Unit</label>
-                  <input
-                    type="text"
+                  <UnitSelect
                     value={editingItem.unit}
-                    onChange={(e) => setEditingItem({ ...editingItem, unit: e.target.value })}
-                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
+                    onChange={(unit) => setEditingItem({ ...editingItem, unit })}
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm bg-white"
                   />
                 </div>
                 <div>

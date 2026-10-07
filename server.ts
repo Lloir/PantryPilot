@@ -3,6 +3,7 @@ import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -31,6 +32,159 @@ try {
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
+
+// ---------------------------------------------------------------------------
+// Login: simple username/password list kept in a text file in the data folder.
+// ---------------------------------------------------------------------------
+const AUTH_ENABLED = process.env.AUTH_DISABLED !== 'true';
+const USERS_FILE = path.join(DATA_DIR, 'users.txt');
+const SECRET_FILE = path.join(DATA_DIR, '.session-secret');
+const SESSION_COOKIE = 'pantrypal_session';
+const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+function ensureUsersFile() {
+  try {
+    if (fs.existsSync(USERS_FILE)) return;
+    const password = crypto.randomBytes(6).toString('base64url');
+    fs.writeFileSync(
+      USERS_FILE,
+      '# PantryPal logins, one per line:  username:password\n' +
+        '# Edit this file to add people or change passwords. No restart needed.\n' +
+        `admin:${password}\n`,
+      'utf-8'
+    );
+    console.log('='.repeat(60));
+    console.log('PantryPal created a login for you. Sign in with:');
+    console.log(`   username: admin`);
+    console.log(`   password: ${password}`);
+    console.log(`(stored in ${USERS_FILE} - edit that file to change it)`);
+    console.log('='.repeat(60));
+  } catch (e) {
+    console.warn('Could not create users.txt:', e);
+  }
+}
+
+function readUsers(): Map<string, string> {
+  const users = new Map<string, string>();
+  try {
+    fs.readFileSync(USERS_FILE, 'utf-8')
+      .split(/\r?\n/)
+      .forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) return;
+        const idx = trimmed.indexOf(':');
+        if (idx < 1) return;
+        users.set(trimmed.slice(0, idx).trim().toLowerCase(), trimmed.slice(idx + 1));
+      });
+  } catch (e) {
+    console.warn('Could not read users.txt:', e);
+  }
+  return users;
+}
+
+function getSessionSecret(): string {
+  try {
+    if (fs.existsSync(SECRET_FILE)) return fs.readFileSync(SECRET_FILE, 'utf-8').trim();
+    const secret = crypto.randomBytes(32).toString('hex');
+    fs.writeFileSync(SECRET_FILE, secret, { encoding: 'utf-8', mode: 0o600 });
+    return secret;
+  } catch (e) {
+    return crypto.randomBytes(32).toString('hex'); // sessions last until restart
+  }
+}
+
+const safeEqual = (a: string, b: string) => {
+  const ha = crypto.createHash('sha256').update(a).digest();
+  const hb = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
+};
+
+let sessionSecret = '';
+const sign = (payload: string) => crypto.createHmac('sha256', sessionSecret).update(payload).digest('base64url');
+
+function createSessionToken(user: string): string {
+  const payload = Buffer.from(JSON.stringify({ u: user, e: Date.now() + SESSION_MAX_AGE_MS })).toString('base64url');
+  return `${payload}.${sign(payload)}`;
+}
+
+function readSession(req: Request): string | null {
+  const header = req.headers.cookie || '';
+  const match = header.split(';').map(c => c.trim()).find(c => c.startsWith(`${SESSION_COOKIE}=`));
+  if (!match) return null;
+  const token = decodeURIComponent(match.slice(SESSION_COOKIE.length + 1));
+  const [payload, sig] = token.split('.');
+  if (!payload || !sig || !safeEqual(sig, sign(payload))) return null;
+  try {
+    const { u, e } = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8'));
+    if (typeof u !== 'string' || typeof e !== 'number' || e < Date.now()) return null;
+    // A removed user is signed out
+    return readUsers().has(u) ? u : null;
+  } catch {
+    return null;
+  }
+}
+
+const cookieOptions = (maxAgeMs: number) =>
+  `Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}`;
+
+// Basic brute-force brake: 8 bad attempts per IP per 10 minutes
+const failedLogins = new Map<string, { count: number; first: number }>();
+const WINDOW_MS = 10 * 60 * 1000;
+const MAX_FAILS = 8;
+
+if (AUTH_ENABLED) {
+  ensureUsersFile();
+  sessionSecret = getSessionSecret();
+} else {
+  console.warn('AUTH_DISABLED=true: login is turned off. Anyone who can reach this server can use it.');
+}
+
+app.get('/api/auth/me', (req: Request, res: Response) => {
+  if (!AUTH_ENABLED) return res.json({ authEnabled: false, authenticated: true, user: null });
+  const user = readSession(req);
+  res.json({ authEnabled: true, authenticated: Boolean(user), user });
+});
+
+app.post('/api/auth/login', (req: Request, res: Response) => {
+  if (!AUTH_ENABLED) return res.json({ authenticated: true });
+  const ip = req.ip || 'unknown';
+  const now = Date.now();
+  const record = failedLogins.get(ip);
+  if (record && now - record.first > WINDOW_MS) failedLogins.delete(ip);
+  const current = failedLogins.get(ip);
+  if (current && current.count >= MAX_FAILS) {
+    return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+  }
+
+  const username = String(req.body?.username || '').trim().toLowerCase();
+  const password = String(req.body?.password ?? '');
+  const users = readUsers();
+  const stored = users.get(username);
+  // Always compare something so timing doesn't reveal whether the user exists
+  const ok = stored !== undefined && safeEqual(password, stored);
+
+  if (!ok) {
+    failedLogins.set(ip, { count: (current?.count || 0) + 1, first: current?.first || now });
+    return res.status(401).json({ error: 'Wrong username or password' });
+  }
+
+  failedLogins.delete(ip);
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(createSessionToken(username))}; ${cookieOptions(SESSION_MAX_AGE_MS)}`);
+  res.json({ authenticated: true, user: username });
+});
+
+app.post('/api/auth/logout', (_req: Request, res: Response) => {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; ${cookieOptions(0)}`);
+  res.json({ authenticated: false });
+});
+
+// Everything else under /api needs a signed-in user (health check stays open for Docker)
+app.use('/api', (req: Request, res: Response, next) => {
+  if (!AUTH_ENABLED || req.path === '/health' || req.path.startsWith('/auth/')) return next();
+  if (readSession(req)) return next();
+  res.status(401).json({ error: 'Not signed in' });
+});
+
 // Healthcheck endpoint for Unraid / Docker / Kubernetes
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
@@ -56,7 +210,10 @@ app.get('/api/pantry-data', (_req: Request, res: Response) => {
     recipes: [],
     plannedMeals: [],
     cookedLogs: [],
-    shoppingList: []
+    shoppingList: [],
+    purchaseLogs: [],
+    rewards: [],
+    settings: null
   });
 });
 
@@ -72,6 +229,9 @@ app.post('/api/pantry-data', (req: Request, res: Response) => {
       plannedMeals: req.body.plannedMeals || [],
       cookedLogs: req.body.cookedLogs || [],
       shoppingList: req.body.shoppingList || [],
+      purchaseLogs: req.body.purchaseLogs || [],
+      rewards: req.body.rewards || [],
+      settings: req.body.settings || null,
       updatedAt: new Date().toISOString()
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
@@ -81,6 +241,13 @@ app.post('/api/pantry-data', (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to persist pantry data' });
   }
 });
+
+// Units the AI may use, depending on whether the app measures by weight or volume
+const UNIT_RULES = {
+  mass: 'Use ONLY these units: g, kg, oz, lb (weight), or count, can, pack, bottle, bag, box, jar, bunch, clove. Never use cups, tbsp, tsp, ml, or any volume unit.',
+  volume: 'Use ONLY these units: ml, l, fl oz, tsp, tbsp, cup, pt, qt, gal (volume), or count, can, pack, bottle, bag, box, jar, bunch, clove. Never use g, kg, oz or lb weight units.',
+} as const;
+const unitRule = (mode: unknown) => (mode === 'volume' ? UNIT_RULES.volume : UNIT_RULES.mass);
 
 // Server-side Gemini initialization
 const apiKey = process.env.GEMINI_API_KEY;
@@ -371,7 +538,7 @@ Return a JSON object with:
 // API: Scan Receipt (Multimodal Gemini 3.8 Flash)
 app.post('/api/scan-receipt', async (req: Request, res: Response) => {
   try {
-    const { imageBase64, mimeType = 'image/jpeg' } = req.body;
+    const { imageBase64, mimeType = 'image/jpeg', measureMode } = req.body;
 
     if (!imageBase64) {
       res.status(400).json({ error: 'Missing imageBase64 payload' });
@@ -403,11 +570,12 @@ Extract all details from this receipt:
    - name: clear food/product name (e.g. "Organic Baby Spinach", "Boneless Chicken Breasts", "Whole Milk")
    - category: strictly one of ["Produce", "Dairy & Eggs", "Meat & Seafood", "Pantry & Grains", "Canned & Jarred", "Frozen", "Bakery", "Beverages", "Spices & Condiments", "Snacks", "Other"]
    - quantity: number (e.g. 1, 2, 2.5)
-   - unit: e.g. "count", "lb", "oz", "can", "bottle", "pack", "bag"
+   - unit: ${unitRule(measureMode)}
    - unitPrice: unit price number
    - totalPrice: total price number for this item line
    - estimatedShelfLifeDays: typical days it stays fresh (e.g. spinach: 5, chicken: 4, milk: 10, canned beans: 700)
    - barcode: optional UPC if visible
+5. rewardsPoints: loyalty / rewards points EARNED on this purchase, if the receipt prints them (e.g. "Points earned: 120", "Fuel points", "You earned 45 pts"). Use the points earned this trip, not the running balance. Omit if not shown.
 Return clean JSON matching the schema.`,
               },
             ],
@@ -422,6 +590,7 @@ Return clean JSON matching the schema.`,
                 subtotal: { type: Type.NUMBER },
                 tax: { type: Type.NUMBER },
                 total: { type: Type.NUMBER },
+                rewardsPoints: { type: Type.INTEGER },
                 items: {
                   type: Type.ARRAY,
                   items: {
@@ -492,7 +661,10 @@ Return clean JSON matching the schema.`,
 // API: Suggest Recipes (Gemini 3.8 Flash)
 app.post('/api/suggest-recipes', async (req: Request, res: Response) => {
   try {
-    const { inventory, mealType, cuisine, preferences } = req.body;
+    const { inventory, mealType, cuisine, preferences, existingRecipeNames, measureMode } = req.body;
+    const existingNames: string[] = Array.isArray(existingRecipeNames)
+      ? existingRecipeNames.filter((n: unknown): n is string => typeof n === 'string')
+      : [];
 
     if (!Array.isArray(inventory)) {
       res.status(400).json({ error: 'inventory must be an array' });
@@ -519,7 +691,10 @@ Generate 2 to 3 delicious, realistic recipes that:
 2. Utilize abundant ingredients currently in stock.
 3. Clearly specify exact quantities with units matching typical cooking and inventory units.
 4. Provide step-by-step cooking instructions.
-5. Provide realistic prep and cook times in minutes.`;
+5. Provide realistic prep and cook times in minutes.
+6. ${unitRule(measureMode)}
+7. Every recipe must be clearly different from the others you return.
+${existingNames.length ? `8. The user already has these recipes, so do NOT suggest them or close variations of them:\n${existingNames.map(n => `- ${n}`).join('\n')}` : ''}`;
 
         const response = await ai.models.generateContent({
           model: 'gemini-3.8-flash',
@@ -564,7 +739,15 @@ Generate 2 to 3 delicious, realistic recipes that:
 
         const text = response.text;
         if (text) {
-          const recipes = JSON.parse(text);
+          const parsedRecipes = JSON.parse(text);
+          // Drop repeats of recipes the user already has and repeats within this batch
+          const seenNames = new Set(existingNames.map(n => n.toLowerCase().trim()));
+          const recipes = parsedRecipes.filter((r: any) => {
+            const key = String(r.name || '').toLowerCase().trim();
+            if (!key || seenNames.has(key)) return false;
+            seenNames.add(key);
+            return true;
+          });
           // Assign unique IDs
           const formattedRecipes = recipes.map((r: any, idx: number) => ({
             id: `ai-rec-${Date.now()}-${idx}`,
@@ -579,35 +762,11 @@ Generate 2 to 3 delicious, realistic recipes that:
       }
     }
 
-    // Fallback creative recipe if Gemini key unavailable
-    res.json({
-      recipes: [
-        {
-          id: `ai-rec-fallback-${Date.now()}`,
-          name: 'Zero-Waste Skillet Hash',
-          description: 'A quick sauté of hearty pantry staples, wilted greens, and seasoned aromatics designed to use up items near expiration.',
-          mealType: mealType || 'Dinner',
-          cuisine: cuisine || 'American',
-          servings: 2,
-          prepTimeMinutes: 10,
-          cookTimeMinutes: 15,
-          tags: ['Zero Waste', 'Quick', 'One Pan'],
-          ingredients: [
-            { name: 'Organic Baby Spinach', quantity: 4, unit: 'oz' },
-            { name: 'Large Brown Eggs', quantity: 2, unit: 'count' },
-            { name: 'Yellow Onions', quantity: 1, unit: 'count' },
-            { name: 'Extra Virgin Olive Oil', quantity: 1, unit: 'oz' },
-          ],
-          instructions: [
-            'Dice onions and heat olive oil in a skillet over medium heat.',
-            'Sauté onions until translucent and slightly caramelized (5-6 mins).',
-            'Add the spinach and wilt gently for 1-2 minutes.',
-            'Make wells in the greens, crack eggs into the wells, cover skillet, and cook until whites set.',
-            'Season with salt and pepper and serve immediately.',
-          ],
-          isAiGenerated: true,
-        },
-      ],
+    // No canned recipe: returning the same fallback every click is what produced duplicates
+    res.status(503).json({
+      error: ai
+        ? 'The AI could not generate recipes right now. Please try again.'
+        : 'AI recipes need a GEMINI_API_KEY set on the server.',
     });
   } catch (err: any) {
     console.error('Error in suggest-recipes:', err);
