@@ -25,6 +25,7 @@ interface MealPlannerProps {
   recipes: Recipe[];
   plannedMeals: PlannedMeal[];
   onAddPlannedMeal: (meal: Omit<PlannedMeal, 'id'>) => void;
+  onAddPlannedMeals: (meals: Omit<PlannedMeal, 'id'>[]) => void;
   onRemovePlannedMeal: (id: string) => void;
   onAutoGenerateShoppingList: (shoppingItems: ShoppingItem[]) => void;
   onCookPlannedMeal: (meal: PlannedMeal) => void;
@@ -37,6 +38,7 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
   recipes,
   plannedMeals,
   onAddPlannedMeal,
+  onAddPlannedMeals,
   onRemovePlannedMeal,
   onAutoGenerateShoppingList,
   onCookPlannedMeal,
@@ -47,6 +49,7 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>('');
   const [customMealName, setCustomMealName] = useState<string>('');
   const [servings, setServings] = useState<number>(2);
+  const [repeatDays, setRepeatDays] = useState<number>(1);
 
   // Generate 7 days of the week starting from weekStartDate
   const weekDays = useMemo(() => {
@@ -99,38 +102,53 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
     e.preventDefault();
     if (!selectedSlotForAdd) return;
 
+    const days = Math.min(14, Math.max(1, repeatDays));
+    const totalServings = servings * days;
+    const groupId = days > 1 ? `prep-${Date.now()}` : undefined;
+    const addDays = (dateStr: string, n: number) => {
+      const d = new Date(`${dateStr}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + n);
+      return d.toISOString().split('T')[0];
+    };
+
+    let name = '';
+    let recipeId: string | undefined;
+    let ingredients: PlannedMeal['ingredients'] = [];
+
     if (selectedRecipeId) {
       const rec = recipes.find(r => r.id === selectedRecipeId);
       if (!rec) return;
-
-      const servingRatio = servings / rec.servings;
-      const scaledIngredients = rec.ingredients.map(ing => ({
-        ...ing,
-        quantity: Number((ing.quantity * servingRatio).toFixed(2))
-      }));
-
-      onAddPlannedMeal({
-        date: selectedSlotForAdd.date,
-        slot: selectedSlotForAdd.slot,
-        recipeId: rec.id,
-        customName: rec.name,
-        servings,
-        ingredients: scaledIngredients
-      });
+      // Cook once for every day: ingredients are deducted a single time for the whole batch
+      const ratio = totalServings / rec.servings;
+      ingredients = rec.ingredients.map(ing => ({ ...ing, quantity: Number((ing.quantity * ratio).toFixed(2)) }));
+      name = rec.name;
+      recipeId = rec.id;
     } else if (customMealName.trim()) {
-      onAddPlannedMeal({
-        date: selectedSlotForAdd.date,
+      name = customMealName.trim();
+    } else {
+      return;
+    }
+
+    const meals: Omit<PlannedMeal, 'id'>[] = [];
+    for (let i = 0; i < days; i++) {
+      meals.push({
+        date: addDays(selectedSlotForAdd.date, i),
         slot: selectedSlotForAdd.slot,
-        customName: customMealName.trim(),
+        recipeId,
+        customName: name,
         servings,
-        ingredients: []
+        ingredients: i === 0 ? ingredients : [],
+        ...(groupId ? { prepGroupId: groupId, isLeftover: i > 0 } : {}),
+        ...(groupId && i === 0 ? { batchServings: totalServings } : {}),
       });
     }
+    onAddPlannedMeals(meals);
 
     setSelectedSlotForAdd(null);
     setSelectedRecipeId('');
     setCustomMealName('');
     setServings(2);
+    setRepeatDays(1);
   };
 
   const handleTriggerAutoShopping = () => {
@@ -309,6 +327,11 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
                               <div className="flex items-start justify-between">
                                 <span className="font-bold text-stone-900 leading-tight">
                                   {meal.customName}
+                                  {meal.isLeftover && (
+                                    <span className="ml-1 text-[9px] font-bold uppercase text-sky-700 bg-sky-50 border border-sky-200 px-1 rounded">
+                                      Leftover
+                                    </span>
+                                  )}
                                 </span>
                                 <button
                                   onClick={() => onRemovePlannedMeal(meal.id)}
@@ -319,13 +342,13 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
                                 </button>
                               </div>
                               <div className="flex items-center justify-between text-[10px] text-stone-500 pt-0.5">
-                                <span>{meal.servings} serv</span>
+                                <span>{meal.batchServings ? `${meal.servings}/day · cook ${meal.batchServings}` : `${meal.servings} serv`}</span>
                                 <button
                                   onClick={() => onCookPlannedMeal(meal)}
                                   className="font-bold text-emerald-700 hover:underline"
-                                  title="Cook this meal now and deduct items"
+                                  title={meal.isLeftover ? 'Mark as eaten (nothing to deduct)' : 'Cook this meal now and deduct items'}
                                 >
-                                  Cook
+                                  {meal.isLeftover ? 'Eat' : meal.batchServings ? 'Cook batch' : 'Cook'}
                                 </button>
                               </div>
                             </div>
@@ -396,16 +419,36 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="block font-semibold text-stone-700 mb-1">Servings</label>
-                <input
-                  type="number"
-                  min="1"
-                  value={servings}
-                  onChange={(e) => setServings(parseInt(e.target.value, 10) || 1)}
-                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-stone-700 mb-1">Servings per day</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={servings}
+                    onChange={(e) => setServings(parseInt(e.target.value, 10) || 1)}
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-stone-700 mb-1">Populate next X days</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="14"
+                    value={repeatDays}
+                    onChange={(e) => setRepeatDays(Math.min(14, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                    className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
+                  />
+                </div>
               </div>
+              {repeatDays > 1 && (
+                <p className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                  Meal prep: cook once on {selectedSlotForAdd.date} ({servings * repeatDays} servings total), then
+                  {' '}{servings} serving{servings === 1 ? '' : 's'} of leftovers are planned in the same slot for each of the next {repeatDays - 1} day{repeatDays - 1 === 1 ? '' : 's'}.
+                  Ingredients are deducted once, when you cook.
+                </p>
+              )}
 
               <div className="flex justify-end space-x-2 pt-3">
                 <button

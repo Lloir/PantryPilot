@@ -14,6 +14,8 @@ import {
   Camera,
   RefreshCw
 } from 'lucide-react';
+import { UnitSelect } from './UnitSelect';
+import { normalizeUnit } from '../utils/units';
 import { ItemCategory, StorageLocation, BarcodeLookupResult } from '../types';
 import { COMMON_BARCODES_DATABASE } from '../data/initialData';
 import { lookupBarcodeApi } from '../services/apiService';
@@ -144,7 +146,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     setItemName(data.brand ? `${data.brand} ${data.name}` : data.name);
     setCategory(data.category);
     setQuantity(data.standardQuantity || 1);
-    setUnit(data.standardUnit || 'count');
+    setUnit(normalizeUnit(data.standardUnit || 'count'));
     setPrice(data.averagePrice || 2.99);
     setLocation(data.storageLocation || 'Pantry');
 
@@ -401,11 +403,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">Unit</label>
-                <input
-                  type="text"
+                <UnitSelect
                   value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
-                  placeholder="oz, lb, count, can"
+                  onChange={setUnit}
                   className="w-full px-3 py-1.5 bg-white border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500"
                 />
               </div>

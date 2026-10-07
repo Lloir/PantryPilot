@@ -16,6 +16,9 @@ import {
 } from 'lucide-react';
 import { ItemCategory, ReceiptParsedItem, ReceiptScanResult, StorageLocation } from '../types';
 import { scanReceiptApi } from '../services/apiService';
+import { UnitSelect } from './UnitSelect';
+import { useMeasureMode } from '../context/SettingsContext';
+import { normalizeUnit, unitSupportedInMode } from '../utils/units';
 
 interface ReceiptScannerModalProps {
   isOpen: boolean;
@@ -31,7 +34,7 @@ interface ReceiptScannerModalProps {
     expirationDate: string;
     location: StorageLocation;
     notes?: string;
-  }[]) => void;
+  }[], meta?: { store?: string; purchaseDate?: string; rewardsPoints?: number }) => void;
 }
 
 const CATEGORIES: ItemCategory[] = [
@@ -53,6 +56,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
   onClose,
   onAddItemsToInventory,
 }) => {
+  const measureMode = useMeasureMode();
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<ReceiptScanResult | null>(null);
@@ -132,8 +136,15 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
     setIsScanning(true);
     setErrorMessage(null);
     try {
-      const result = await scanReceiptApi(base64Image);
-      setScanResult(result);
+      const result = await scanReceiptApi(base64Image, 'image/jpeg', measureMode);
+      // Standardize units; anything outside the app's measure mode becomes a plain count
+      setScanResult({
+        ...result,
+        items: result.items.map(it => {
+          const unit = normalizeUnit(it.unit);
+          return { ...it, unit: unitSupportedInMode(unit, measureMode) ? unit : 'count' };
+        }),
+      });
     } catch (err: any) {
       console.error('Scan error:', err);
       // Clean fallback if server error so user isn't stuck
@@ -236,7 +247,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
         name: item.name,
         category: item.category,
         quantity: item.quantity,
-        unit: item.unit || 'count',
+        unit: normalizeUnit(item.unit || 'count'),
         unitPrice: item.unitPrice,
         totalCost: item.totalPrice,
         purchaseDate,
@@ -246,7 +257,11 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
       };
     });
 
-    onAddItemsToInventory(itemsToAdd);
+    onAddItemsToInventory(itemsToAdd, {
+      store: scanResult.storeName,
+      purchaseDate,
+      rewardsPoints: scanResult.rewardsPoints,
+    });
     onClose();
   };
 
@@ -404,6 +419,21 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
                 </div>
 
                 <div>
+                  <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block">Reward Points</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={scanResult.rewardsPoints ?? ''}
+                    placeholder="0"
+                    onChange={(e) => setScanResult({
+                      ...scanResult,
+                      rewardsPoints: e.target.value === '' ? undefined : Math.max(0, parseInt(e.target.value, 10) || 0),
+                    })}
+                    className="mt-0.5 text-stone-800 bg-white border border-stone-200 rounded px-2 py-0.5 text-xs w-full"
+                  />
+                </div>
+
+                <div>
                   <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block">Items Found</span>
                   <span className="text-xs font-semibold text-stone-900 mt-1 block">
                     {scanResult.items.filter(i => i.selected !== false).length} of {scanResult.items.length} selected
@@ -508,11 +538,10 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
                             />
                           </td>
                           <td className="py-2 px-3">
-                            <input
-                              type="text"
+                            <UnitSelect
                               value={item.unit}
-                              onChange={(e) => handleItemFieldChange(idx, 'unit', e.target.value)}
-                              className="w-16 bg-stone-50 border border-stone-200 rounded px-1.5 py-0.5 text-xs"
+                              onChange={(unit) => handleItemFieldChange(idx, 'unit', unit)}
+                              className="w-24 bg-stone-50 border border-stone-200 rounded px-1 py-0.5 text-xs"
                             />
                           </td>
                           <td className="py-2 px-3">

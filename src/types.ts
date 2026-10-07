@@ -79,8 +79,12 @@ export interface PlannedMeal {
   slot: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
   recipeId?: string;
   customName?: string;
-  servings: number;
+  servings: number; // servings eaten in this slot
   ingredients: RecipeIngredient[];
+  // Meal prep: one cook session fills several days.
+  batchServings?: number; // on the cook entry: total servings produced
+  prepGroupId?: string; // shared by the cook entry and its leftovers
+  isLeftover?: boolean; // leftover slot: eating it deducts nothing
 }
 
 export interface ShoppingItem {
@@ -114,6 +118,7 @@ export interface ReceiptScanResult {
   subtotal: number;
   tax: number;
   total: number;
+  rewardsPoints?: number; // points earned, if printed on the receipt
   items: ReceiptParsedItem[];
   confidenceScore?: number;
 }
@@ -131,3 +136,29 @@ export interface BarcodeLookupResult {
   foundInDatabase: boolean;
   confidence?: string;
 }
+
+export interface PurchaseLog {
+  id: string;
+  date: string; // YYYY-MM-DD
+  total: number;
+  categoryTotals: Partial<Record<ItemCategory, number>>;
+  source: 'receipt' | 'manual' | 'barcode' | 'shopping-list' | 'history';
+  store?: string;
+}
+
+export interface RewardsEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  points: number; // positive = earned, negative = redeemed
+  store?: string;
+  note?: string;
+  source: 'receipt' | 'manual';
+}
+
+export interface AppSettings {
+  measureMode: 'mass' | 'volume';
+  hiddenTags: string[]; // suggested tags the user removed from the tag bar
+  migratedV4?: boolean; // one-time unit standardization / duplicate merge / purchase history seed
+}
+
+export const DEFAULT_SETTINGS: AppSettings = { measureMode: 'mass', hiddenTags: [] };

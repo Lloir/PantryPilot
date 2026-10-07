@@ -19,19 +19,26 @@ import {
   RotateCcw, 
   ChefHat, 
   Tag, 
+  Trash2,
   X 
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { InventoryItem, Recipe, RecipeIngredient } from '../types';
 import { calculateRecipeCostAndMatch, RecipeCostBreakdown } from '../utils/costCalculator';
 import { suggestRecipesApi } from '../services/apiService';
+import { UnitSelect } from './UnitSelect';
+import { useMeasureMode } from '../context/SettingsContext';
 
 interface RecipeDatabaseProps {
   inventory: InventoryItem[];
   recipes: Recipe[];
   onCookMeal: (recipe: Recipe, servingsCooked: number, costBreakdown: RecipeCostBreakdown) => void;
   onAddPlannedMeal: (recipe: Recipe, date: string, slot: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack', servings: number) => void;
-  onAddNewRecipe: (recipe: Recipe) => void;
+  onAddNewRecipe: (recipe: Recipe) => boolean;
+  onDeleteRecipe: (id: string) => void;
+  onDeleteTag: (tag: string) => void;
+  hiddenTags: string[];
+  onRestoreTags: () => void;
   onUpdateRecipe?: (recipe: Recipe) => void;
   initialSearchQuery?: string;
 }
@@ -58,9 +65,14 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   onCookMeal,
   onAddPlannedMeal,
   onAddNewRecipe,
+  onDeleteRecipe,
+  onDeleteTag,
+  hiddenTags,
+  onRestoreTags,
   onUpdateRecipe,
   initialSearchQuery = '',
 }) => {
+  const measureMode = useMeasureMode();
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [stockAvailabilityFilter, setStockAvailabilityFilter] = useState<'All' | 'canCookNow' | 'missingOne'>('canCookNow');
   const [selectedMealType, setSelectedMealType] = useState<string>('All');
@@ -99,10 +111,16 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
+  // Suggested tags the user hasn't removed
+  const visibleSuggestions = useMemo(
+    () => POPULAR_TAG_SUGGESTIONS.filter(t => !hiddenTags.some(h => h.toLowerCase() === t.toLowerCase())),
+    [hiddenTags]
+  );
+
   // Collect all unique tags dynamically across recipes
   const allAvailableTags = useMemo(() => {
     const counts: Record<string, number> = {};
-    POPULAR_TAG_SUGGESTIONS.forEach(t => {
+    visibleSuggestions.forEach(t => {
       counts[t] = 0;
     });
 
@@ -116,9 +134,9 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
     });
 
     return Object.entries(counts)
-      .filter(([name, count]) => count > 0 || POPULAR_TAG_SUGGESTIONS.includes(name))
+      .filter(([name, count]) => count > 0 || visibleSuggestions.includes(name))
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [recipes]);
+  }, [recipes, visibleSuggestions]);
 
   // Calculate costs and matches for all recipes
   const recipeAnalyses = useMemo(() => {
@@ -192,6 +210,12 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
     setSelectedTags([]);
   };
 
+  const handleDeleteRecipe = (recipe: Recipe) => {
+    if (!window.confirm(`Delete "${recipe.name}"? This can't be undone.`)) return;
+    onDeleteRecipe(recipe.id);
+    setSelectedRecipeDetail(prev => (prev && prev.id === recipe.id ? null : prev));
+  };
+
   const handleOpenDetail = (recipe: Recipe) => {
     setSelectedRecipeDetail(recipe);
     setServingsOverride(recipe.servings);
@@ -224,13 +248,27 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
       const generated = await suggestRecipesApi(
         inventory,
         selectedMealType !== 'All' ? selectedMealType : undefined,
-        selectedCuisine !== 'All' ? selectedCuisine : undefined
+        selectedCuisine !== 'All' ? selectedCuisine : undefined,
+        undefined,
+        recipes.map(r => r.name),
+        measureMode
       );
 
-      if (generated && generated.length > 0) {
-        generated.forEach(r => onAddNewRecipe(r));
+      // Skip anything already saved, and duplicates within this batch
+      const seen = new Set(recipes.map(r => r.name.toLowerCase().trim()));
+      const fresh = generated.filter(r => {
+        const key = r.name.toLowerCase().trim();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      if (fresh.length > 0) {
+        fresh.forEach(r => onAddNewRecipe(r));
         setStockAvailabilityFilter('All');
         confetti({ particleCount: 50, spread: 50 });
+      } else {
+        setAiError('The AI only suggested recipes you already have. Try a different meal type or cuisine, or click again for new ideas.');
       }
     } catch (err: any) {
       console.error('AI suggest error:', err);
@@ -316,7 +354,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
       tags: newRecTags.length > 0 ? newRecTags : ['Custom Recipe'],
     };
 
-    onAddNewRecipe(recipe);
+    if (!onAddNewRecipe(recipe)) return; // duplicate name: keep the form open
     setIsCreateRecipeOpen(false);
     // Reset form
     setNewRecName('');
@@ -565,8 +603,8 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
               const isSelected = selectedTags.includes(tagName);
 
               return (
+                <span key={tagName} className="inline-flex items-center">
                 <button
-                  key={tagName}
                   onClick={() => handleToggleTag(tagName)}
                   className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
                     isSelected
@@ -582,8 +620,33 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                   </span>
                   {isSelected && <X className="w-3 h-3 ml-0.5" />}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const where = count > 0 ? ` from ${count} recipe${count === 1 ? '' : 's'}` : '';
+                    if (window.confirm(`Remove the "${tagName}" tag${where}? It will also disappear from the tag list.`)) {
+                      setSelectedTags(prev => prev.filter(t => t !== tagName));
+                      onDeleteTag(tagName);
+                    }
+                  }}
+                  className="-ml-1.5 px-1 py-1 rounded-r-lg text-stone-300 hover:text-red-600 hover:bg-red-50 text-xs"
+                  title={`Remove the "${tagName}" tag`}
+                  aria-label={`Remove tag ${tagName}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+                </span>
               );
             })}
+            {hiddenTags.length > 0 && (
+              <button
+                type="button"
+                onClick={onRestoreTags}
+                className="text-[11px] font-semibold text-stone-400 hover:text-emerald-700 px-1.5"
+              >
+                Restore {hiddenTags.length} removed
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -775,6 +838,15 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                     </button>
 
                     <button
+                      onClick={() => handleDeleteRecipe(recipe)}
+                      className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete this recipe"
+                      aria-label={`Delete recipe ${recipe.name}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+
+                    <button
                       onClick={() => {
                         setSelectedRecipeDetail(recipe);
                         setServingsOverride(recipe.servings);
@@ -861,7 +933,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                   <div className="pt-1.5 flex flex-wrap items-center gap-2">
                     {/* Quick Suggestions */}
                     <div className="flex flex-wrap gap-1">
-                      {POPULAR_TAG_SUGGESTIONS.slice(0, 5).map(suggestedTag => {
+                      {visibleSuggestions.slice(0, 5).map(suggestedTag => {
                         const alreadyHas = (selectedRecipeDetail.tags || []).some(t => t.toLowerCase() === suggestedTag.toLowerCase());
                         if (alreadyHas) return null;
 
@@ -1013,16 +1085,25 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
 
               {/* Modal Actions */}
               <div className="px-6 py-4 border-t border-stone-200 bg-stone-50 flex items-center justify-between">
-                <button
-                  onClick={() => {
-                    setPlanningRecipe(selectedRecipeDetail);
-                    setSelectedRecipeDetail(null);
-                  }}
-                  className="px-4 py-2 border border-stone-300 text-stone-700 rounded-xl text-xs font-semibold hover:bg-stone-100 flex items-center space-x-1.5"
-                >
-                  <CalendarPlus className="w-4 h-4 text-stone-500" />
-                  <span>Add to Meal Plan</span>
-                </button>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => {
+                      setPlanningRecipe(selectedRecipeDetail);
+                      setSelectedRecipeDetail(null);
+                    }}
+                    className="px-4 py-2 border border-stone-300 text-stone-700 rounded-xl text-xs font-semibold hover:bg-stone-100 flex items-center space-x-1.5"
+                  >
+                    <CalendarPlus className="w-4 h-4 text-stone-500" />
+                    <span>Add to Meal Plan</span>
+                  </button>
+                  <button
+                    onClick={() => handleDeleteRecipe(selectedRecipeDetail)}
+                    className="px-3 py-2 border border-red-200 text-red-600 rounded-xl text-xs font-semibold hover:bg-red-50 flex items-center space-x-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Delete</span>
+                  </button>
+                </div>
 
                 <div className="flex items-center space-x-3">
                   <button
@@ -1194,7 +1275,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                 <div className="space-y-1 pt-1">
                   <span className="text-[10px] text-stone-500 font-semibold block">Quick Add Suggestions:</span>
                   <div className="flex flex-wrap gap-1">
-                    {POPULAR_TAG_SUGGESTIONS.map(tagSuggestion => {
+                    {visibleSuggestions.map(tagSuggestion => {
                       const isAdded = newRecTags.some(t => t.toLowerCase() === tagSuggestion.toLowerCase());
                       if (isAdded) return null;
 
@@ -1310,16 +1391,14 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                         }}
                         className="w-16 px-2 py-1.5 border border-stone-300 rounded-lg text-xs"
                       />
-                      <input
-                        type="text"
-                        placeholder="Unit"
+                      <UnitSelect
                         value={ing.unit}
-                        onChange={(e) => {
+                        onChange={(unit) => {
                           const updated = [...newRecIngredients];
-                          updated[idx].unit = e.target.value;
+                          updated[idx] = { ...updated[idx], unit };
                           setNewRecIngredients(updated);
                         }}
-                        className="w-16 px-2 py-1.5 border border-stone-300 rounded-lg text-xs"
+                        className="w-28 px-2 py-1.5 border border-stone-300 rounded-lg text-xs bg-white"
                       />
                       {newRecIngredients.length > 1 && (
                         <button
