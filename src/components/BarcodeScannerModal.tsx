@@ -17,6 +17,8 @@ import {
 import { useCurrency } from '../context/SettingsContext';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
+import { CameraProblemNotice } from './CameraProblemNotice';
+import { CameraProblem, checkCameraSupport, classifyCameraError, findSecureAddress } from '../utils/camera';
 import { normalizeUnit } from '../utils/units';
 import { addDaysISO, todayISO } from '../utils/inventoryMerge';
 import { ItemCategory, StorageLocation, BarcodeLookupResult } from '../types';
@@ -68,6 +70,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [lookupResult, setLookupResult] = useState<BarcodeLookupResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [cameraProblem, setCameraProblem] = useState<CameraProblem | null>(null);
+  const [secureUrl, setSecureUrl] = useState<string | null>(null);
 
   // Editable item form fields
   const [itemName, setItemName] = useState('');
@@ -166,6 +170,13 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   };
 
   const startCamera = async () => {
+    setCameraProblem(null);
+    const unsupported = checkCameraSupport();
+    if (unsupported) {
+      setCameraProblem(unsupported);
+      if (unsupported === 'insecure') setSecureUrl(await findSecureAddress());
+      return;
+    }
     try {
       setIsScanningCamera(true);
       setErrorMessage(null);
@@ -202,7 +213,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     } catch (err: any) {
       console.warn('Camera error:', err);
       setIsScanningCamera(false);
-      setErrorMessage('Camera access was denied or not supported. You can enter or select a barcode below.');
+      setCameraProblem(classifyCameraError(err));
     }
   };
 
@@ -301,6 +312,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 Open Camera
               </button>
             </div>
+          )}
+
+          {cameraProblem && (
+            <CameraProblemNotice problem={cameraProblem} secureUrl={secureUrl} alternative="type the barcode number below" />
           )}
 
           {/* Barcode Search Box */}

@@ -18,6 +18,8 @@ import { ItemCategory, ReceiptParsedItem, ReceiptScanResult, StorageLocation } f
 import { scanReceiptApi } from '../services/apiService';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
+import { CameraProblemNotice } from './CameraProblemNotice';
+import { CameraProblem, checkCameraSupport, classifyCameraError, findSecureAddress } from '../utils/camera';
 import { useCurrency, useMeasureMode } from '../context/SettingsContext';
 import { normalizeUnit, unitSupportedInMode } from '../utils/units';
 
@@ -63,6 +65,9 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<ReceiptScanResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [cameraProblem, setCameraProblem] = useState<CameraProblem | null>(null);
+  const [secureUrl, setSecureUrl] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +107,13 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
   };
 
   const startCamera = async () => {
+    setCameraProblem(null);
+    const unsupported = checkCameraSupport();
+    if (unsupported) {
+      setCameraProblem(unsupported);
+      if (unsupported === 'insecure') setSecureUrl(await findSecureAddress());
+      return;
+    }
     try {
       setIsCameraActive(true);
       setErrorMessage(null);
@@ -115,7 +127,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
     } catch (err: any) {
       console.warn('Camera error:', err);
       setIsCameraActive(false);
-      setErrorMessage('Camera access was not granted or not available. You can upload an image or click a sample receipt below.');
+      setCameraProblem(classifyCameraError(err));
     }
   };
 
@@ -369,14 +381,36 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
                       <Upload className="w-4 h-4" />
                       <span>Upload Receipt Image</span>
                     </button>
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={handleFileUpload}
+                    />
+                    <button
+                      onClick={() => photoInputRef.current?.click()}
+                      className="px-4 py-2 bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 rounded-xl text-xs sm:text-sm font-medium inline-flex items-center space-x-2 transition-colors"
+                      title="Opens your phone's camera app and sends the photo here"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>Take Photo</span>
+                    </button>
                     <button
                       onClick={startCamera}
                       className="px-4 py-2 bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 rounded-xl text-xs sm:text-sm font-medium inline-flex items-center space-x-2 transition-colors"
+                      title="Live camera preview in the page"
                     >
                       <Camera className="w-4 h-4" />
-                      <span>Use Camera</span>
+                      <span>Live Camera</span>
                     </button>
                   </div>
+                  {cameraProblem && (
+                    <div className="text-left max-w-xl mx-auto">
+                      <CameraProblemNotice problem={cameraProblem} secureUrl={secureUrl} alternative="use Take Photo or Upload Receipt Image instead" />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
