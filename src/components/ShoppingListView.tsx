@@ -11,6 +11,7 @@ import {
   Calendar,
   AlertCircle
 } from 'lucide-react';
+import { useCurrency } from '../context/SettingsContext';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
 import confetti from 'canvas-confetti';
@@ -45,6 +46,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
   onAddItem,
   onPurchaseAndAddToInventory,
 }) => {
+  const { fmt } = useCurrency();
   const [newItemName, setNewItemName] = useState('');
   const [newItemCategory, setNewItemCategory] = useState<ItemCategory>('Produce');
   const [newItemQty, setNewItemQty] = useState<number | undefined>(undefined);
@@ -121,13 +123,13 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
         <div className="flex items-center space-x-4">
           <div className="text-right">
             <span className="text-[10px] uppercase font-bold text-stone-400 block">Est. Grocery Cost</span>
-            <span className="text-xl font-black text-emerald-700">${totalEstimatedCost.toFixed(2)}</span>
+            <span className="text-xl font-black text-emerald-700">{fmt(totalEstimatedCost)}</span>
           </div>
 
           <button
             onClick={handleMoveToInventory}
             disabled={checkedCount === 0}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all flex items-center space-x-2"
+            className="edit-only px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all flex items-center space-x-2"
           >
             <PackagePlus className="w-4 h-4" />
             <span>Add Bought Items to Pantry ({checkedCount})</span>
@@ -136,7 +138,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
       </div>
 
       {/* Quick Add Custom Item Form */}
-      <form onSubmit={handleManualAdd} className="bg-white p-4 rounded-2xl border border-stone-200 shadow-2xs">
+      <form onSubmit={handleManualAdd} className="edit-only bg-white p-4 rounded-2xl border border-stone-200 shadow-2xs">
         <span className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-2">
           + Add Item to Shopping List
         </span>
@@ -203,7 +205,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
                   {categoryName} ({items.length})
                 </span>
                 <span className="text-xs font-semibold text-emerald-800">
-                  ${items.reduce((sum, it) => sum + (it.estimatedCost || 0), 0).toFixed(2)}
+                  {fmt(items.reduce((sum, it) => sum + (it.estimatedCost || 0), 0))}
                 </span>
               </div>
 
@@ -220,7 +222,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
                         type="checkbox"
                         checked={item.checked}
                         onChange={() => onToggleItem(item.id)}
-                        className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                        className="edit-lock w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
                       />
                       <div>
                         <span className={`text-sm font-bold block ${item.checked ? 'line-through text-stone-400' : ''}`}>
@@ -239,11 +241,11 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
                         {item.quantity ? `${item.quantity} ${item.unit || ''}` : ''}
                       </span>
                       <span className="text-xs font-bold text-emerald-700 w-16 text-right">
-                        {item.estimatedCost !== undefined ? `$${item.estimatedCost.toFixed(2)}` : <span className="text-stone-300">no price</span>}
+                        {item.estimatedCost !== undefined ? `${fmt(item.estimatedCost)}` : <span className="text-stone-300">no price</span>}
                       </span>
                       <button
                         onClick={() => onDeleteItem(item.id)}
-                        className="text-stone-300 hover:text-red-600 p-1 rounded"
+                        className="edit-only text-stone-300 hover:text-red-600 p-1 rounded"
                         title="Remove item"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

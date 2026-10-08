@@ -18,7 +18,7 @@ import { ItemCategory, ReceiptParsedItem, ReceiptScanResult, StorageLocation } f
 import { scanReceiptApi } from '../services/apiService';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
-import { useMeasureMode } from '../context/SettingsContext';
+import { useCurrency, useMeasureMode } from '../context/SettingsContext';
 import { normalizeUnit, unitSupportedInMode } from '../utils/units';
 
 interface ReceiptScannerModalProps {
@@ -57,6 +57,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
   onClose,
   onAddItemsToInventory,
 }) => {
+  const { fmt, symbol, currency } = useCurrency();
   const measureMode = useMeasureMode();
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -137,7 +138,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
     setIsScanning(true);
     setErrorMessage(null);
     try {
-      const result = await scanReceiptApi(base64Image, 'image/jpeg', measureMode);
+      const result = await scanReceiptApi(base64Image, 'image/jpeg', measureMode, currency);
       // Standardize units; anything outside the app's measure mode becomes a plain count
       setScanResult({
         ...result,
@@ -444,7 +445,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
                 <div>
                   <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider block">Total Spent</span>
                   <span className="text-sm font-bold text-emerald-700 mt-0.5 block">
-                    ${scanResult.total.toFixed(2)}
+                    {fmt(scanResult.total)}
                   </span>
                 </div>
               </div>
@@ -492,8 +493,8 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
                         <th className="py-2 px-3 text-left">Category</th>
                         <th className="py-2 px-3 text-left w-20">Qty</th>
                         <th className="py-2 px-3 text-left w-20">Unit</th>
-                        <th className="py-2 px-3 text-left w-20">Unit $</th>
-                        <th className="py-2 px-3 text-left w-20">Total $</th>
+                        <th className="py-2 px-3 text-left w-20">Unit {symbol}</th>
+                        <th className="py-2 px-3 text-left w-20">Total {symbol}</th>
                         <th className="py-2 px-3 text-left w-24">Shelf Life</th>
                         <th className="py-2 px-3 text-center w-10"></th>
                       </tr>
@@ -553,7 +554,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
                             />
                           </td>
                           <td className="py-2 px-3 font-semibold text-stone-800">
-                            ${item.totalPrice.toFixed(2)}
+                            {fmt(item.totalPrice)}
                           </td>
                           <td className="py-2 px-3">
                             <div className="flex items-center space-x-1">

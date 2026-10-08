@@ -29,7 +29,7 @@ import { suggestRecipesApi } from '../services/apiService';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
 import { todayISO } from '../utils/inventoryMerge';
-import { useMeasureMode } from '../context/SettingsContext';
+import { useCurrency, useMeasureMode } from '../context/SettingsContext';
 
 interface RecipeDatabaseProps {
   inventory: InventoryItem[];
@@ -72,6 +72,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   onUpdateRecipe,
   initialSearchQuery = '',
 }) => {
+  const { fmt } = useCurrency();
   const measureMode = useMeasureMode();
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [stockAvailabilityFilter, setStockAvailabilityFilter] = useState<'All' | 'canCookNow' | 'missingOne'>('canCookNow');
@@ -415,7 +416,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
             <button
               onClick={handleAiSuggest}
               disabled={isGeneratingAi}
-              className="w-full py-2 px-3 bg-white hover:bg-emerald-50 text-emerald-900 font-bold rounded-xl text-xs sm:text-sm inline-flex items-center justify-center space-x-2 shadow-xs transition-colors disabled:opacity-70"
+              className="edit-only w-full py-2 px-3 bg-white hover:bg-emerald-50 text-emerald-900 font-bold rounded-xl text-xs sm:text-sm inline-flex items-center justify-center space-x-2 shadow-xs transition-colors disabled:opacity-70"
             >
               {isGeneratingAi ? (
                 <>
@@ -467,7 +468,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
           <div className="flex items-center space-x-2 shrink-0">
             <button
               onClick={() => setIsCreateRecipeOpen(true)}
-              className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs sm:text-sm font-semibold transition-colors flex items-center space-x-1.5 shadow-xs"
+              className="edit-only px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs sm:text-sm font-semibold transition-colors flex items-center space-x-1.5 shadow-xs"
             >
               <PlusCircle className="w-4 h-4" />
               <span>Add Custom Recipe</span>
@@ -672,7 +673,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
             </button>
             <button
               onClick={handleAiSuggest}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg"
+              className="edit-only px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg"
             >
               Generate AI Recipe
             </button>
@@ -765,11 +766,11 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                   <div className="mt-3.5 grid grid-cols-3 gap-2 py-2 border-y border-stone-100 text-xs">
                     <div>
                       <span className="text-[10px] text-stone-400 uppercase font-semibold block">Cost/Serving</span>
-                      <span className="font-bold text-emerald-700">${breakdown.costPerServing.toFixed(2)}</span>
+                      <span className="font-bold text-emerald-700">{fmt(breakdown.costPerServing)}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-stone-400 uppercase font-semibold block">Total Cost</span>
-                      <span className="font-bold text-stone-800">${breakdown.totalCost.toFixed(2)}</span>
+                      <span className="font-bold text-stone-800">{fmt(breakdown.totalCost)}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-stone-400 uppercase font-semibold block">Time</span>
@@ -817,7 +818,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                         setPlanningRecipe(recipe);
                         setPlanServings(recipe.servings);
                       }}
-                      className="p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-200 rounded-lg transition-colors"
+                      className="edit-only p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-200 rounded-lg transition-colors"
                       title="Add to Weekly Meal Plan"
                     >
                       <CalendarPlus className="w-4 h-4" />
@@ -825,7 +826,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
 
                     <button
                       onClick={() => handleDeleteRecipe(recipe)}
-                      className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      className="edit-only p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                       title="Delete this recipe"
                       aria-label={`Delete recipe ${recipe.name}`}
                     >
@@ -837,7 +838,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                         setSelectedRecipeDetail(recipe);
                         setServingsOverride(recipe.servings);
                       }}
-                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs"
+                      className="edit-only px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-2xs"
                     >
                       Cook Now
                     </button>
@@ -987,14 +988,14 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                   <div>
                     <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">Cost Per Serving</span>
                     <span className="text-base font-extrabold text-emerald-700 block mt-1">
-                      ${detailBreakdown.costPerServing.toFixed(2)}
+                      {fmt(detailBreakdown.costPerServing)}
                     </span>
                   </div>
 
                   <div>
                     <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">Total Recipe Cost</span>
                     <span className="text-base font-extrabold text-stone-900 block mt-1">
-                      ${detailBreakdown.totalCost.toFixed(2)}
+                      {fmt(detailBreakdown.totalCost)}
                     </span>
                   </div>
                 </div>
@@ -1045,7 +1046,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                               )}
                             </td>
                             <td className="py-2 px-3 text-right font-bold text-stone-900">
-                              ${item.cost.toFixed(2)}
+                              {fmt(item.cost)}
                             </td>
                           </tr>
                         ))}
@@ -1078,14 +1079,14 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                       setPlanServings(servingsOverride);
                       setSelectedRecipeDetail(null);
                     }}
-                    className="px-4 py-2 border border-stone-300 text-stone-700 rounded-xl text-xs font-semibold hover:bg-stone-100 flex items-center space-x-1.5"
+                    className="edit-only px-4 py-2 border border-stone-300 text-stone-700 rounded-xl text-xs font-semibold hover:bg-stone-100 flex items-center space-x-1.5"
                   >
                     <CalendarPlus className="w-4 h-4 text-stone-500" />
                     <span>Add to Meal Plan</span>
                   </button>
                   <button
                     onClick={() => handleDeleteRecipe(selectedRecipeDetail)}
-                    className="px-3 py-2 border border-red-200 text-red-600 rounded-xl text-xs font-semibold hover:bg-red-50 flex items-center space-x-1.5"
+                    className="edit-only px-3 py-2 border border-red-200 text-red-600 rounded-xl text-xs font-semibold hover:bg-red-50 flex items-center space-x-1.5"
                   >
                     <Trash2 className="w-4 h-4" />
                     <span>Delete</span>
@@ -1101,7 +1102,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                   </button>
                   <button
                     onClick={handleCookFromDetail}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-colors flex items-center space-x-2"
+                    className="edit-only px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-colors flex items-center space-x-2"
                   >
                     <Check className="w-4 h-4" />
                     <span>Cook Meal (Deduct Stock)</span>

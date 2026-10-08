@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   List
 } from 'lucide-react';
+import { useCurrency } from '../context/SettingsContext';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
 import { ItemNameInput } from './ItemNameInput';
@@ -60,6 +61,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
   onOpenReceiptScanner,
   onOpenBarcodeScanner,
 }) => {
+  const { fmt, symbol } = useCurrency();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedLocation, setSelectedLocation] = useState<string>('All');
@@ -223,7 +225,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
             <DollarSign className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="mt-2 flex items-baseline space-x-2">
-            <span className="text-2xl font-bold text-stone-900">${metrics.totalValue}</span>
+            <span className="text-2xl font-bold text-stone-900">{fmt(Number(metrics.totalValue))}</span>
             <span className="text-xs text-emerald-600 font-semibold">in stock</span>
           </div>
         </div>
@@ -292,19 +294,19 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
           <div className="flex items-center space-x-2 shrink-0">
             <button
               onClick={onOpenReceiptScanner}
-              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs sm:text-sm font-semibold transition-colors flex items-center space-x-1.5 shadow-2xs"
+              className="edit-only px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs sm:text-sm font-semibold transition-colors flex items-center space-x-1.5 shadow-2xs"
             >
               <span>Scan Receipt</span>
             </button>
             <button
               onClick={onOpenBarcodeScanner}
-              className="px-3.5 py-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-xl text-xs sm:text-sm font-semibold transition-colors flex items-center space-x-1.5 shadow-2xs"
+              className="edit-only px-3.5 py-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-xl text-xs sm:text-sm font-semibold transition-colors flex items-center space-x-1.5 shadow-2xs"
             >
               <span>Scan Barcode</span>
             </button>
             <button
               onClick={() => setIsAddModalOpen(true)}
-              className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs sm:text-sm font-semibold transition-colors flex items-center space-x-1.5 shadow-xs"
+              className="edit-only px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs sm:text-sm font-semibold transition-colors flex items-center space-x-1.5 shadow-xs"
             >
               <Plus className="w-4 h-4" />
               <span>Add Item</span>
@@ -434,7 +436,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
             </button>
             <button
               onClick={onOpenReceiptScanner}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg"
+              className="edit-only px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg"
             >
               Scan Receipt
             </button>
@@ -515,14 +517,14 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                   <div className="flex items-center space-x-1">
                     <button
                       onClick={() => handleQuickQtyChange(item, -0.5)}
-                      className="w-7 h-7 rounded-lg bg-white border border-stone-200 text-stone-700 font-bold hover:bg-stone-100 flex items-center justify-center transition-colors shadow-2xs"
+                      className="edit-only w-7 h-7 rounded-lg bg-white border border-stone-200 text-stone-700 font-bold hover:bg-stone-100 flex items-center justify-center transition-colors shadow-2xs"
                       title="Decrease quantity"
                     >
                       -
                     </button>
                     <button
                       onClick={() => handleQuickQtyChange(item, 1)}
-                      className="w-7 h-7 rounded-lg bg-white border border-stone-200 text-stone-700 font-bold hover:bg-stone-100 flex items-center justify-center transition-colors shadow-2xs"
+                      className="edit-only w-7 h-7 rounded-lg bg-white border border-stone-200 text-stone-700 font-bold hover:bg-stone-100 flex items-center justify-center transition-colors shadow-2xs"
                       title="Increase quantity"
                     >
                       +
@@ -535,10 +537,10 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                   <div>
                     <span className="text-[10px] uppercase font-semibold text-stone-400 block">Total Cost</span>
                     <span className="text-sm font-bold text-emerald-800">
-                      ${(item.totalCost || item.quantity * item.unitPrice).toFixed(2)}
+                      {fmt((item.totalCost || item.quantity * item.unitPrice))}
                     </span>
                     <span className="text-[10px] text-stone-500 ml-1">
-                      (${item.unitPrice.toFixed(2)}/{item.unit})
+                      ({fmt(item.unitPrice)}/{item.unit})
                     </span>
                   </div>
 
@@ -553,7 +555,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                     </button>
                     <button
                       onClick={() => setEditingItem(item)}
-                      className="p-1.5 text-stone-400 hover:text-stone-700 rounded-lg hover:bg-stone-100 transition-colors"
+                      className="edit-only p-1.5 text-stone-400 hover:text-stone-700 rounded-lg hover:bg-stone-100 transition-colors"
                       title="Edit Item"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
@@ -608,9 +610,9 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                       <td className="py-2.5 px-4 font-semibold text-stone-800">
                         {item.quantity} {item.unit}
                       </td>
-                      <td className="py-2.5 px-4 text-stone-600">${item.unitPrice.toFixed(2)}</td>
+                      <td className="py-2.5 px-4 text-stone-600">{fmt(item.unitPrice)}</td>
                       <td className="py-2.5 px-4 font-bold text-emerald-800">
-                        ${(item.totalCost || item.quantity * item.unitPrice).toFixed(2)}
+                        {fmt((item.totalCost || item.quantity * item.unitPrice))}
                       </td>
                       <td className="py-2.5 px-4">
                         <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
@@ -628,13 +630,13 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                         </button>
                         <button
                           onClick={() => setEditingItem(item)}
-                          className="p-1 text-stone-400 hover:text-stone-700 rounded"
+                          className="edit-only p-1 text-stone-400 hover:text-stone-700 rounded"
                         >
                           <Edit2 className="w-3.5 h-3.5 inline" />
                         </button>
                         <button
                           onClick={() => onDeleteItem(item.id)}
-                          className="p-1 text-stone-400 hover:text-red-600 rounded"
+                          className="edit-only p-1 text-stone-400 hover:text-red-600 rounded"
                         >
                           <Trash2 className="w-3.5 h-3.5 inline" />
                         </button>
@@ -717,7 +719,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-stone-700 mb-1">Total Cost ($, optional)</label>
+                  <label className="block font-semibold text-stone-700 mb-1">Total Cost ({symbol}, optional)</label>
                   <NumberField
                     allowEmpty
                     placeholder="Optional"
@@ -841,7 +843,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-stone-700 mb-1">Unit Price ($)</label>
+                  <label className="block font-semibold text-stone-700 mb-1">Unit Price ({symbol})</label>
                   <NumberField
                     value={editingItem.unitPrice}
                     onChange={(v) => {

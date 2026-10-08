@@ -1,1 +1,6 @@
 @import "tailwindcss";
+@import "./dark-theme.css";
+
+/* View-only members (<html class="view-only">): hide controls that change things */
+html.view-only .edit-only { display: none !important; }
+html.view-only .edit-lock { pointer-events: none; opacity: 0.6; }

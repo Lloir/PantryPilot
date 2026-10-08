@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Refrigerator, Lock } from 'lucide-react';
+import { AuthContext } from '../context/AuthContext';
+import { Role } from '../types';
 
 type AuthState = 'checking' | 'signedOut' | 'signedIn';
 
@@ -19,8 +21,9 @@ function patchFetchFor401() {
   };
 }
 
-export const AuthGate: React.FC<{ children: (logout: () => void) => React.ReactNode }> = ({ children }) => {
+export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<AuthState>('checking');
+  const [me, setMe] = useState<{ user: string; role: Role }>({ user: 'home', role: 'admin' });
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +36,10 @@ export const AuthGate: React.FC<{ children: (logout: () => void) => React.ReactN
 
     fetch('/api/auth/me')
       .then(res => res.json())
-      .then(data => setState(data.authenticated ? 'signedIn' : 'signedOut'))
+      .then(data => {
+        if (data.authenticated) setMe({ user: data.user ?? 'home', role: data.role ?? 'admin' });
+        setState(data.authenticated ? 'signedIn' : 'signedOut');
+      })
       // Server unreachable: let the app run in its local-only mode
       .catch(() => setState('signedIn'));
 
@@ -51,6 +57,8 @@ export const AuthGate: React.FC<{ children: (logout: () => void) => React.ReactN
         body: JSON.stringify({ username, password }),
       });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setMe({ user: data.user ?? username, role: data.role ?? 'member' });
         setPassword('');
         setState('signedIn');
       } else {
@@ -73,7 +81,7 @@ export const AuthGate: React.FC<{ children: (logout: () => void) => React.ReactN
   }
 
   if (state === 'signedIn') {
-    return <>{children(logout)}</>;
+    return <AuthContext.Provider value={{ ...me, logout }}>{children}</AuthContext.Provider>;
   }
 
   return (

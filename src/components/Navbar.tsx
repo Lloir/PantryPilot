@@ -15,11 +15,17 @@ import {
   LogOut,
   Scale,
   Menu,
+  Coins,
+  Users,
+  Inbox,
+  Palette,
   X
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { CURRENCIES } from '../utils/currency';
+import { ThemeChoice } from '../utils/theme';
 
-export type ActiveTab = 'inventory' | 'recipes' | 'planner' | 'shopping' | 'analytics';
+export type ActiveTab = 'inventory' | 'recipes' | 'planner' | 'shopping' | 'analytics' | 'requests';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -34,6 +40,12 @@ interface NavbarProps {
   onShowAndroidInstall?: () => void;
   onOpenUnraidModal?: () => void;
   onClearAllData?: () => void;
+  requestsCount: number;
+  onOpenHousehold: () => void;
+  theme: ThemeChoice;
+  onChangeTheme: (theme: ThemeChoice) => void;
+  currency: string;
+  onChangeCurrency: (code: string) => void;
   measureMode: 'mass' | 'volume';
   onChangeMeasureMode: (mode: 'mass' | 'volume') => void;
   onLogout?: () => void;
@@ -52,6 +64,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   onShowAndroidInstall,
   onOpenUnraidModal,
   onClearAllData,
+  requestsCount,
+  onOpenHousehold,
+  theme,
+  onChangeTheme,
+  currency,
+  onChangeCurrency,
   measureMode,
   onChangeMeasureMode,
   onLogout,
@@ -103,7 +121,32 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                   <div className="border-t border-stone-100 my-1" />
 
-                  <label className="flex items-center justify-between px-3 py-2 text-sm text-stone-700">
+                  <button
+                    onClick={closeAnd(onOpenHousehold)}
+                    className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-stone-800 hover:bg-stone-100 text-left"
+                  >
+                    <Users className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <span>People &amp; household</span>
+                  </button>
+
+                  <label className="flex items-center justify-between gap-3 px-3 py-2 text-sm text-stone-700">
+                    <span className="flex items-center space-x-2.5">
+                      <Palette className="w-4 h-4 text-stone-500 shrink-0" />
+                      <span>Theme</span>
+                    </span>
+                    <select
+                      value={theme}
+                      onChange={(e) => onChangeTheme(e.target.value as ThemeChoice)}
+                      className="bg-stone-100 border border-stone-200 rounded-md px-1.5 py-1 text-xs font-semibold text-stone-700"
+                      title="Light, dark, or follow your device. Only affects this device."
+                    >
+                      <option value="system">Match device</option>
+                      <option value="light">Light</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </label>
+
+                  <label className="flex items-center justify-between gap-3 px-3 py-2 text-sm text-stone-700">
                     <span className="flex items-center space-x-2.5">
                       <Scale className="w-4 h-4 text-stone-500 shrink-0" />
                       <span>Measure by</span>
@@ -116,6 +159,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                     >
                       <option value="mass">Weight</option>
                       <option value="volume">Volume</option>
+                    </select>
+                  </label>
+
+                  <label className="flex items-center justify-between gap-3 px-3 py-2 text-sm text-stone-700">
+                    <span className="flex items-center space-x-2.5">
+                      <Coins className="w-4 h-4 text-stone-500 shrink-0" />
+                      <span>Currency</span>
+                    </span>
+                    <select
+                      value={currency}
+                      onChange={(e) => onChangeCurrency(e.target.value)}
+                      className="bg-stone-100 border border-stone-200 rounded-md px-1.5 py-1 text-xs font-semibold text-stone-700 max-w-[10rem]"
+                      title="Only changes how prices are shown; amounts are not converted."
+                    >
+                      {CURRENCIES.map(c => (
+                        <option key={c.code} value={c.code}>{c.code} · {c.name}</option>
+                      ))}
                     </select>
                   </label>
 
@@ -155,7 +215,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center space-x-2">
             <button
               onClick={onOpenReceiptScanner}
-              className="inline-flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors shadow-2xs"
+              className="edit-only inline-flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors shadow-2xs"
               title="Scan Grocery Receipt"
             >
               <ScanLine className="w-4 h-4 text-emerald-700" />
@@ -164,7 +224,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={onOpenBarcodeScanner}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 transition-colors shadow-2xs"
+              className="edit-only inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 transition-colors shadow-2xs"
               title="Scan Barcode"
             >
               <Barcode className="w-4 h-4 text-sky-700" />
@@ -173,7 +233,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={onOpenAddItem}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg text-white bg-stone-900 hover:bg-stone-800 transition-colors shadow-2xs"
+              className="edit-only inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs sm:text-sm font-medium rounded-lg text-white bg-stone-900 hover:bg-stone-800 transition-colors shadow-2xs"
               title="Add Item Manually"
             >
               <PlusCircle className="w-4 h-4" />
@@ -273,10 +333,29 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span>Cost & Savings</span>
           </button>
 
+          <button
+            onClick={() => setActiveTab('requests')}
+            className={`inline-flex items-center space-x-2 px-3 py-2 text-xs sm:text-sm font-medium rounded-lg whitespace-nowrap transition-colors ${
+              activeTab === 'requests'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+            }`}
+          >
+            <Inbox className="w-4 h-4" />
+            <span>Requests</span>
+            {requestsCount > 0 && (
+              <span className={`px-1.5 py-0.2 rounded-full text-xs font-bold ${
+                activeTab === 'requests' ? 'bg-emerald-200 text-emerald-950' : 'bg-amber-100 text-amber-800'
+              }`}>
+                {requestsCount}
+              </span>
+            )}
+          </button>
+
           {onClearAllData && (
             <button
               onClick={onClearAllData}
-              className="ml-auto inline-flex items-center space-x-1.5 px-2.5 py-1.5 text-xs text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors whitespace-nowrap"
+              className="edit-only ml-auto inline-flex items-center space-x-1.5 px-2.5 py-1.5 text-xs text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors whitespace-nowrap"
               title="Clear all data from database"
             >
               <Trash2 className="w-3.5 h-3.5" />
