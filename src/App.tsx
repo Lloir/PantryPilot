@@ -1046,7 +1046,6 @@ export default function App() {
         onClose={() => setIsBarcodeModalOpen(false)}
         onAddItemToInventory={(item) => {
           handleAddItem(item, 'barcode');
-          setIsBarcodeModalOpen(false);
         }}
       />
 

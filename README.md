@@ -81,6 +81,15 @@ After that the camera asks for permission like normal.
 
 ---
 
+## 🏷️ Barcode lookup
+
+Barcodes are looked up in the free [Open Food Facts](https://world.openfoodfacts.org) database (worldwide,
+crowd-sourced) and UPCitemdb. The server needs internet access for this. Anything you confirm is remembered,
+so a missing product only needs filling in once. Optional: set `BARCODE_LOOKUP_API_KEY` to also use
+[barcodelookup.com](https://www.barcodelookup.com/api) (paid key).
+
+---
+
 ## 🔐 Logging in, and sharing with your household
 
 PantryPal asks for a username and password. **Everyone who signs in shares the same

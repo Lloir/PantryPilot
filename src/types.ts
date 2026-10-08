@@ -139,6 +139,7 @@ export interface BarcodeLookupResult {
   storageLocation: StorageLocation;
   foundInDatabase: boolean;
   confidence?: string;
+  source?: string; // saved | local_database | open_food_facts | barcodelookup_com | upcitemdb | gemini_guess | not_found
 }
 
 export interface PurchaseLog {
