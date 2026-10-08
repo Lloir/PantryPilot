@@ -15,7 +15,9 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { UnitSelect } from './UnitSelect';
+import { NumberField } from './NumberField';
 import { normalizeUnit } from '../utils/units';
+import { addDaysISO, todayISO } from '../utils/inventoryMerge';
 import { ItemCategory, StorageLocation, BarcodeLookupResult } from '../types';
 import { COMMON_BARCODES_DATABASE } from '../data/initialData';
 import { lookupBarcodeApi } from '../services/apiService';
@@ -72,8 +74,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [unit, setUnit] = useState<string>('count');
   const [price, setPrice] = useState<number>(2.99);
   const [location, setLocation] = useState<StorageLocation>('Pantry');
-  const [purchaseDate, setPurchaseDate] = useState<string>('2026-10-05');
-  const [expirationDate, setExpirationDate] = useState<string>('2026-10-19');
+  const [purchaseDate, setPurchaseDate] = useState<string>(todayISO());
+  const [expirationDate, setExpirationDate] = useState<string>(addDaysISO(todayISO(), 14));
   const [notes, setNotes] = useState<string>('');
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -150,7 +152,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     setPrice(data.averagePrice || 2.99);
     setLocation(data.storageLocation || 'Pantry');
 
-    const todayStr = '2026-10-05';
+    const todayStr = todayISO();
     setPurchaseDate(todayStr);
 
     const shelfDays = data.estimatedShelfLifeDays || 14;
@@ -391,12 +393,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">Quantity</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
+                <NumberField
                   value={quantity}
-                  onChange={(e) => setQuantity(parseFloat(e.target.value) || 1)}
+                  onChange={(v) => setQuantity(v ?? 0)}
                   className="w-full px-3 py-1.5 bg-white border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500"
                 />
               </div>
@@ -412,12 +411,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">Total Price ($)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
+                <NumberField
                   value={price}
-                  onChange={(e) => setPrice(parseFloat(e.target.value) || 0)}
+                  onChange={(v) => setPrice(v ?? 0)}
                   className="w-full px-3 py-1.5 bg-white border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500"
                 />
               </div>

@@ -18,7 +18,7 @@ import {
   DEFAULT_SETTINGS
 } from './types';
 import { SettingsProvider } from './context/SettingsContext';
-import { mergeIntoInventory, normalizeInventory } from './utils/inventoryMerge';
+import { mergeIntoInventory, normalizeInventory, syncInventoryBatches, estimateCostFromPantry, todayISO, addDaysISO } from './utils/inventoryMerge';
 import { canonicalUnit } from './utils/units';
 import { 
   INITIAL_INVENTORY, 
@@ -204,7 +204,7 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
       ...m,
       ingredients: m.ingredients.map(i => ({ ...i, unit: canonicalUnit(i.unit) || i.unit })),
     })));
-    setShoppingList(prev => prev.map(i => ({ ...i, unit: canonicalUnit(i.unit) || i.unit })));
+    setShoppingList(prev => prev.map(i => ({ ...i, unit: i.unit ? canonicalUnit(i.unit) || i.unit : i.unit })));
 
     if (purchaseLogs.length === 0) {
       const seeded = new Map<string, PurchaseLog>();
@@ -336,7 +336,20 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
   };
 
   // Badges calculations
-  const today = useMemo(() => new Date('2026-10-05T00:00:00'), []);
+  // Re-checked every few minutes so the app notices when midnight passes
+  const [todayStr, setTodayStr] = useState(todayISO());
+  useEffect(() => {
+    const id = setInterval(() => setTodayStr(todayISO()), 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+  const today = useMemo(() => new Date(`${todayStr}T00:00:00`), [todayStr]);
+
+  // Each item's expiration date follows its soonest unexpired batch
+  useEffect(() => {
+    if (!hydrated) return;
+    const synced = syncInventoryBatches(inventory, todayStr);
+    if (synced !== inventory) setInventory(synced);
+  }, [hydrated, inventory, todayStr]);
 
   const expiringCount = useMemo(() => {
     return inventory.filter(item => {
@@ -360,7 +373,14 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
 
   // Inventory actions
   const handleUpdateItem = (updated: InventoryItem) => {
-    setInventory(prev => prev.map(item => item.id === updated.id ? updated : item));
+    setInventory(prev => prev.map(item => {
+      if (item.id !== updated.id) return item;
+      // Typing a new expiration date by hand replaces the per-purchase dates
+      if (updated.expirationDate !== item.expirationDate) {
+        return { ...updated, batches: [{ quantity: updated.quantity, expirationDate: updated.expirationDate }] };
+      }
+      return updated;
+    }));
     showToast(`Updated "${updated.name}"`);
   };
 
@@ -398,10 +418,15 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
   };
 
   const handleAddItem = (newItem: Omit<InventoryItem, 'id'>, source: PurchaseLog['source'] = 'manual') => {
-    const item: InventoryItem = {
+    let item: InventoryItem = {
       ...newItem,
       id: `inv-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
     };
+    // No price entered: use what the pantry already pays for this item instead of counting it as free
+    if (!(item.totalCost > 0)) {
+      const guess = estimateCostFromPantry(item.name, item.quantity, item.unit, inventory);
+      if (guess !== undefined) item = { ...item, totalCost: guess, unitPrice: Number((guess / (item.quantity || 1)).toFixed(2)) };
+    }
     const result = mergeIntoInventory(inventory, [item]);
     setInventory(result.inventory);
     logPurchase([item], source, item.purchaseDate);
@@ -429,12 +454,12 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
 
     const result = mergeIntoInventory(inventory, newItems);
     setInventory(result.inventory);
-    logPurchase(newItems, 'receipt', meta?.purchaseDate || newItems[0]?.purchaseDate || '2026-10-05', meta?.store);
+    logPurchase(newItems, 'receipt', meta?.purchaseDate || newItems[0]?.purchaseDate || todayISO(), meta?.store);
 
     let pointsNote = '';
     if (meta?.rewardsPoints && meta.rewardsPoints > 0) {
       handleAddRewards({
-        date: meta.purchaseDate || newItems[0]?.purchaseDate || '2026-10-05',
+        date: meta.purchaseDate || newItems[0]?.purchaseDate || todayISO(),
         points: meta.rewardsPoints,
         store: meta.store,
         note: 'From receipt',
@@ -618,6 +643,8 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
   const handleAddShoppingItem = (item: Omit<ShoppingItem, 'id' | 'checked'>) => {
     const newItem: ShoppingItem = {
       ...item,
+      // Price comes from what you last paid in the pantry; no match means no price
+      estimatedCost: item.estimatedCost ?? estimateCostFromPantry(item.name, item.quantity, item.unit, inventory),
       id: `shop-${Date.now()}`,
       checked: false,
     };
@@ -626,11 +653,14 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
   };
 
   const handlePurchaseAndAddToInventory = (checkedItems: ShoppingItem[]) => {
-    const todayStr = '2026-10-05';
     const newInvItems: InventoryItem[] = checkedItems.map(item => {
       // Estimate expiration date +14 days
-      const expDate = new Date(`${todayStr}T00:00:00`);
-      expDate.setDate(expDate.getDate() + 14);
+      const expirationDate = addDaysISO(todayStr, 14);
+      // Hand-typed items may have no quantity/unit: assume 1, in the unit the pantry already uses for that name
+      const sameName = inventory.find(i => i.name.toLowerCase().trim() === item.name.toLowerCase().trim());
+      const quantity = item.quantity && item.quantity > 0 ? item.quantity : 1;
+      const unit = item.unit || sameName?.unit || 'count';
+      const cost = item.estimatedCost ?? 0;
 
       let location: StorageLocation = 'Pantry';
       if (['Produce', 'Dairy & Eggs', 'Meat & Seafood'].includes(item.category)) {
@@ -641,12 +671,12 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
         id: `inv-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
         name: item.name,
         category: item.category,
-        quantity: item.quantity,
-        unit: item.unit,
-        unitPrice: Number((item.estimatedCost / (item.quantity || 1)).toFixed(2)),
-        totalCost: item.estimatedCost,
+        quantity,
+        unit,
+        unitPrice: Number((cost / quantity).toFixed(2)),
+        totalCost: cost,
         purchaseDate: todayStr,
-        expirationDate: expDate.toISOString().split('T')[0],
+        expirationDate,
         location,
         notes: 'Purchased from shopping list'
       };
@@ -694,9 +724,7 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
     showToast(`Removed tag "${tag}"`);
   };
 
-  const handleRestoreTags = () => {
-    setSettings(prev => ({ ...prev, hiddenTags: [] }));
-  };
+
 
   const handleUpdateRecipe = (updated: Recipe) => {
     setRecipes(prev => prev.map(r => r.id === updated.id ? updated : r));
@@ -772,7 +800,6 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
             onDeleteRecipe={handleDeleteRecipe}
             onDeleteTag={handleDeleteTag}
             hiddenTags={settings.hiddenTags}
-            onRestoreTags={handleRestoreTags}
             onUpdateRecipe={handleUpdateRecipe}
             initialSearchQuery={recipeSearchQuery}
           />

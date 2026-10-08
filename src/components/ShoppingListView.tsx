@@ -12,6 +12,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { UnitSelect } from './UnitSelect';
+import { NumberField } from './NumberField';
 import confetti from 'canvas-confetti';
 import { ItemCategory, ShoppingItem, StorageLocation } from '../types';
 
@@ -46,9 +47,8 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
 }) => {
   const [newItemName, setNewItemName] = useState('');
   const [newItemCategory, setNewItemCategory] = useState<ItemCategory>('Produce');
-  const [newItemQty, setNewItemQty] = useState(1);
-  const [newItemUnit, setNewItemUnit] = useState('count');
-  const [newItemCost, setNewItemCost] = useState(2.99);
+  const [newItemQty, setNewItemQty] = useState<number | undefined>(undefined);
+  const [newItemUnit, setNewItemUnit] = useState('');
 
   // Group items by category
   const groupedItems = useMemo(() => {
@@ -77,14 +77,15 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
     onAddItem({
       name: newItemName.trim(),
       category: newItemCategory,
-      quantity: newItemQty,
-      unit: newItemUnit,
-      estimatedCost: newItemCost,
+      // Both optional: leave blank to just remind yourself to buy it
+      quantity: newItemQty && newItemQty > 0 ? newItemQty : undefined,
+      unit: newItemQty && newItemQty > 0 ? newItemUnit || undefined : undefined,
       reason: 'Manual shopping item'
     });
 
     setNewItemName('');
-    setNewItemCost(2.99);
+    setNewItemQty(undefined);
+    setNewItemUnit('');
   };
 
   const handleMoveToInventory = () => {
@@ -156,17 +157,17 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
             {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <div className="flex space-x-1">
-            <input
-              type="number"
-              step="0.1"
-              min="0.1"
+            <NumberField
               value={newItemQty}
-              onChange={(e) => setNewItemQty(parseFloat(e.target.value) || 1)}
-              className="w-14 px-2 py-2 border border-stone-300 rounded-lg text-sm text-center"
+              onChange={setNewItemQty}
+              allowEmpty
+              placeholder="Qty"
+              className="w-16 px-2 py-2 border border-stone-300 rounded-lg text-sm text-center"
             />
             <UnitSelect
               value={newItemUnit}
               onChange={setNewItemUnit}
+              allowBlank
               className="w-24 px-2 py-2 border border-stone-300 rounded-lg text-sm bg-white"
             />
           </div>
@@ -177,6 +178,9 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
             Add to List
           </button>
         </div>
+        <p className="text-[11px] text-stone-400 mt-2">
+          Quantity and unit are optional. The price comes from what you last paid for the same item in your pantry; if it isn't there, no price is shown.
+        </p>
       </form>
 
       {/* Shopping List Items grouped by Aisle */}
@@ -199,7 +203,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
                   {categoryName} ({items.length})
                 </span>
                 <span className="text-xs font-semibold text-emerald-800">
-                  ${items.reduce((sum, it) => sum + it.estimatedCost, 0).toFixed(2)}
+                  ${items.reduce((sum, it) => sum + (it.estimatedCost || 0), 0).toFixed(2)}
                 </span>
               </div>
 
@@ -232,10 +236,10 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
 
                     <div className="flex items-center space-x-4">
                       <span className="text-xs font-semibold text-stone-700">
-                        {item.quantity} {item.unit}
+                        {item.quantity ? `${item.quantity} ${item.unit || ''}` : ''}
                       </span>
                       <span className="text-xs font-bold text-emerald-700 w-16 text-right">
-                        ${item.estimatedCost.toFixed(2)}
+                        {item.estimatedCost !== undefined ? `$${item.estimatedCost.toFixed(2)}` : <span className="text-stone-300">no price</span>}
                       </span>
                       <button
                         onClick={() => onDeleteItem(item.id)}

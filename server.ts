@@ -564,7 +564,7 @@ app.post('/api/scan-receipt', async (req: Request, res: Response) => {
                 text: `You are an expert grocery receipt OCR engine.
 Extract all details from this receipt:
 1. Store name (e.g. "Trader Joe's", "Costco", "Whole Foods", "Kroger", "Safeway", or whatever is shown).
-2. Purchase date in YYYY-MM-DD format (if unclear, use current date 2026-10-05).
+2. Purchase date in YYYY-MM-DD format (if unclear, use today's date, ${new Date().toISOString().split('T')[0]}).
 3. Subtotal, tax, and total amount paid.
 4. Itemized list of grocery items purchased:
    - name: clear food/product name (e.g. "Organic Baby Spinach", "Boneless Chicken Breasts", "Whole Milk")
@@ -638,7 +638,7 @@ Return clean JSON matching the schema.`,
     // High quality fallback parser in case key is not set or parsing error
     res.json({
       storeName: 'Local Grocery Market',
-      purchaseDate: '2026-10-05',
+      purchaseDate: new Date().toISOString().split('T')[0],
       subtotal: 19.85,
       tax: 1.45,
       total: 21.30,
@@ -681,7 +681,7 @@ app.post('/api/suggest-recipes', async (req: Request, res: Response) => {
 Here is the user's current kitchen inventory:
 ${inventorySummary}
 
-Current Date: 2026-10-05.
+Current Date: ${new Date().toISOString().split('T')[0]}.
 ${mealType ? `Desired Meal Type: ${mealType}` : ''}
 ${cuisine ? `Desired Cuisine: ${cuisine}` : ''}
 ${preferences ? `Extra Request: ${preferences}` : ''}

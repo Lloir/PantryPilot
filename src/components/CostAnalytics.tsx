@@ -17,6 +17,7 @@ import {
   History
 } from 'lucide-react';
 import { CookedMealLog, InventoryItem, PurchaseLog, RewardsEntry } from '../types';
+import { todayISO } from '../utils/inventoryMerge';
 
 interface CostAnalyticsProps {
   cookedLogs: CookedMealLog[];
@@ -51,11 +52,11 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
   const [rewardStore, setRewardStore] = useState('');
   const [rewardNote, setRewardNote] = useState('');
   const [rewardDate, setRewardDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [rewardMode, setRewardMode] = useState<'earn' | 'redeem'>('earn');
+  const [rewardError, setRewardError] = useState<string | null>(null);
 
   // Spending history by month (what was bought, not what is left on the shelf)
   const history = useMemo(() => {
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentMonth = todayISO().slice(0, 7);
     const byMonth: Record<string, number> = {};
     const catByMonth: Record<string, Record<string, number>> = {};
     purchaseLogs.forEach(log => {
@@ -88,15 +89,29 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
     return { rows, total: Number(total.toFixed(2)), avgMonthly: Number(avgMonthly.toFixed(2)), max, categoryAvg, monthsCount: months.length };
   }, [purchaseLogs, historyRange]);
 
+  // Money spent so far this calendar month
+  const spentMtd = useMemo(() => {
+    const month = todayISO().slice(0, 7);
+    const logs = purchaseLogs.filter(l => monthKey(l.date) === month);
+    return { month, count: logs.length, total: Number(logs.reduce((a, l) => a + l.total, 0).toFixed(2)) };
+  }, [purchaseLogs]);
+
   const rewardsBalance = useMemo(() => rewards.reduce((a, r) => a + r.points, 0), [rewards]);
 
-  const handleSubmitRewards = (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitRewards = (mode: 'earn' | 'redeem') => {
     const pts = Math.abs(parseInt(rewardPoints, 10));
-    if (!pts) return;
+    if (!pts) {
+      setRewardError('Enter a number of points first.');
+      return;
+    }
+    if (mode === 'redeem' && pts > rewardsBalance) {
+      setRewardError(`You only have ${rewardsBalance.toLocaleString()} points to use.`);
+      return;
+    }
+    setRewardError(null);
     onAddRewards({
       date: rewardDate,
-      points: rewardMode === 'earn' ? pts : -pts,
+      points: mode === 'earn' ? pts : -pts,
       store: rewardStore.trim() || undefined,
       note: rewardNote.trim() || undefined,
       source: 'manual',
@@ -115,9 +130,6 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
     const totalServingsCooked = cookedLogs.reduce((acc, log) => acc + log.servingsCooked, 0);
     const avgCostPerServing = totalServingsCooked > 0 ? totalCookingCost / totalServingsCooked : 0;
 
-    // Estimated takeout benchmark: $16 per serving outside
-    const takeoutBenchmark = totalServingsCooked * 16.0;
-    const totalSavings = Math.max(0, takeoutBenchmark - totalCookingCost);
 
     // Category distribution from inventory
     const catTotals: Record<string, number> = {};
@@ -135,8 +147,6 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
       totalCookingCost: Number(totalCookingCost.toFixed(2)),
       totalServingsCooked,
       avgCostPerServing: Number(avgCostPerServing.toFixed(2)),
-      takeoutBenchmark: Number(takeoutBenchmark.toFixed(2)),
-      totalSavings: Number(totalSavings.toFixed(2)),
       categoryBreakdown
     };
   }, [cookedLogs, inventory]);
@@ -171,13 +181,12 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-2xs">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Estimated Savings</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Total Spent MTD</span>
           <div className="mt-2 flex items-baseline space-x-1">
-            <span className="text-2xl font-black text-emerald-600">${analytics.totalSavings.toFixed(2)}</span>
-            <span className="text-xs text-emerald-700 font-semibold">saved</span>
+            <span className="text-2xl font-black text-emerald-600">${spentMtd.total.toFixed(2)}</span>
           </div>
           <span className="text-[11px] text-stone-500 mt-1 block">
-            vs $16.00 average takeout order
+            {spentMtd.count} purchase{spentMtd.count === 1 ? '' : 's'} in {monthLabel(spentMtd.month)}
           </span>
         </div>
 
@@ -305,28 +314,17 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
           </div>
         </div>
         <p className="text-xs text-stone-500">
-          Points printed on a receipt are added automatically when you scan it. You can also log points by hand.
+          Points printed on a receipt are added automatically when you scan it. Use Add to log points you earn and Use to subtract points you spend.
         </p>
 
-        <form onSubmit={handleSubmitRewards} className="grid grid-cols-2 md:grid-cols-6 gap-2 items-end text-xs">
-          <div>
-            <label className="block font-semibold text-stone-700 mb-1">Type</label>
-            <select
-              value={rewardMode}
-              onChange={(e) => setRewardMode(e.target.value as 'earn' | 'redeem')}
-              className="w-full px-2 py-2 border border-stone-300 rounded-lg bg-white"
-            >
-              <option value="earn">Earned</option>
-              <option value="redeem">Redeemed</option>
-            </select>
-          </div>
+        <form onSubmit={(e) => { e.preventDefault(); submitRewards('earn'); }} className="grid grid-cols-2 md:grid-cols-5 gap-2 items-end text-xs">
           <div>
             <label className="block font-semibold text-stone-700 mb-1">Points</label>
             <input
               type="number"
               min="1"
               value={rewardPoints}
-              onChange={(e) => setRewardPoints(e.target.value)}
+              onChange={(e) => { setRewardPoints(e.target.value); setRewardError(null); }}
               className="w-full px-2 py-2 border border-stone-300 rounded-lg"
               placeholder="e.g. 120"
             />
@@ -360,14 +358,26 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
               placeholder="Optional"
             />
           </div>
-          <button
-            type="submit"
-            disabled={!rewardPoints}
-            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg font-bold"
-          >
-            Add points
-          </button>
+          <div className="flex space-x-2">
+            <button
+              type="submit"
+              className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold"
+            >
+              Add
+            </button>
+            <button
+              type="button"
+              onClick={() => submitRewards('redeem')}
+              className="flex-1 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold"
+              title="Subtract points you spent"
+            >
+              Use
+            </button>
+          </div>
         </form>
+        {rewardError && (
+          <p role="alert" className="text-xs font-medium text-red-700">{rewardError}</p>
+        )}
 
         {rewards.length > 0 && (
           <div className="divide-y divide-stone-100 border border-stone-100 rounded-xl">

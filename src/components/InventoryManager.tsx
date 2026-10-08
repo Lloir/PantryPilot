@@ -20,6 +20,9 @@ import {
   List
 } from 'lucide-react';
 import { UnitSelect } from './UnitSelect';
+import { NumberField } from './NumberField';
+import { ItemNameInput } from './ItemNameInput';
+import { addDaysISO, todayISO } from '../utils/inventoryMerge';
 import { InventoryItem, ItemCategory, StorageLocation } from '../types';
 
 interface InventoryManagerProps {
@@ -70,15 +73,15 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
   const [newItemCat, setNewItemCat] = useState<ItemCategory>('Produce');
   const [newItemQty, setNewItemQty] = useState<number>(1);
   const [newItemUnit, setNewItemUnit] = useState('count');
-  const [newItemCost, setNewItemCost] = useState<number>(2.99);
+  const [newItemCost, setNewItemCost] = useState<number | undefined>(undefined);
   const [newItemLoc, setNewItemLoc] = useState<StorageLocation>('Fridge');
-  const [newItemExp, setNewItemExp] = useState('2026-10-12');
+  const [newItemExp, setNewItemExp] = useState(addDaysISO(todayISO(), 7));
   const [newItemNotes, setNewItemNotes] = useState('');
 
   // Edit item state
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
 
-  const today = useMemo(() => new Date('2026-10-05T00:00:00'), []);
+  const today = useMemo(() => new Date(`${todayISO()}T00:00:00`), []);
 
   // Helper to compute days until expiration
   const getDaysUntilExpiry = (expDateStr: string): number => {
@@ -178,9 +181,9 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
       category: newItemCat,
       quantity: newItemQty,
       unit: newItemUnit,
-      unitPrice: Number((newItemCost / (newItemQty || 1)).toFixed(2)),
-      totalCost: newItemCost,
-      purchaseDate: '2026-10-05',
+      unitPrice: Number(((newItemCost ?? 0) / (newItemQty || 1)).toFixed(2)),
+      totalCost: newItemCost ?? 0,
+      purchaseDate: todayISO(),
       expirationDate: newItemExp,
       location: newItemLoc,
       notes: newItemNotes.trim(),
@@ -188,6 +191,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
 
     setIsAddModalOpen(false);
     setNewItemName('');
+    setNewItemCost(undefined);
     setNewItemNotes('');
   };
 
@@ -658,13 +662,16 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
             <form onSubmit={handleAddSubmit} className="space-y-4 pt-4 text-xs">
               <div>
                 <label className="block font-semibold text-stone-700 mb-1">Item Name</label>
-                <input
-                  type="text"
-                  required
+                <ItemNameInput
                   value={newItemName}
-                  onChange={(e) => setNewItemName(e.target.value)}
+                  onChange={setNewItemName}
+                  inventory={inventory}
                   placeholder="e.g. Greek Whole Milk Yogurt"
-                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500"
+                  onPick={(item) => {
+                    setNewItemCat(item.category);
+                    setNewItemLoc(item.location);
+                    setNewItemUnit(item.unit);
+                  }}
                 />
               </div>
 
@@ -694,13 +701,10 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-stone-700 mb-1">Quantity</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0.1"
+                  <NumberField
                     required
                     value={newItemQty}
-                    onChange={(e) => setNewItemQty(parseFloat(e.target.value) || 1)}
+                    onChange={(v) => setNewItemQty(v ?? 0)}
                     className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
                   />
                 </div>
@@ -713,14 +717,12 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-stone-700 mb-1">Total Cost ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    required
+                  <label className="block font-semibold text-stone-700 mb-1">Total Cost ($, optional)</label>
+                  <NumberField
+                    allowEmpty
+                    placeholder="Optional"
                     value={newItemCost}
-                    onChange={(e) => setNewItemCost(parseFloat(e.target.value) || 0)}
+                    onChange={setNewItemCost}
                     className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
                   />
                 </div>
@@ -817,13 +819,10 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-stone-700 mb-1">Quantity</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
+                  <NumberField
                     value={editingItem.quantity}
-                    onChange={(e) => {
-                      const qty = parseFloat(e.target.value) || 0;
+                    onChange={(v) => {
+                      const qty = v ?? 0;
                       setEditingItem({
                         ...editingItem,
                         quantity: qty,
@@ -843,13 +842,10 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                 </div>
                 <div>
                   <label className="block font-semibold text-stone-700 mb-1">Unit Price ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
+                  <NumberField
                     value={editingItem.unitPrice}
-                    onChange={(e) => {
-                      const uPrice = parseFloat(e.target.value) || 0;
+                    onChange={(v) => {
+                      const uPrice = v ?? 0;
                       setEditingItem({
                         ...editingItem,
                         unitPrice: uPrice,

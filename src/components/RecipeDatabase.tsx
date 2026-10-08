@@ -27,6 +27,8 @@ import { InventoryItem, Recipe, RecipeIngredient } from '../types';
 import { calculateRecipeCostAndMatch, RecipeCostBreakdown } from '../utils/costCalculator';
 import { suggestRecipesApi } from '../services/apiService';
 import { UnitSelect } from './UnitSelect';
+import { NumberField } from './NumberField';
+import { todayISO } from '../utils/inventoryMerge';
 import { useMeasureMode } from '../context/SettingsContext';
 
 interface RecipeDatabaseProps {
@@ -38,7 +40,6 @@ interface RecipeDatabaseProps {
   onDeleteRecipe: (id: string) => void;
   onDeleteTag: (tag: string) => void;
   hiddenTags: string[];
-  onRestoreTags: () => void;
   onUpdateRecipe?: (recipe: Recipe) => void;
   initialSearchQuery?: string;
 }
@@ -68,7 +69,6 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   onDeleteRecipe,
   onDeleteTag,
   hiddenTags,
-  onRestoreTags,
   onUpdateRecipe,
   initialSearchQuery = '',
 }) => {
@@ -87,7 +87,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
 
   // Plan Meal Modal inside Recipe
   const [planningRecipe, setPlanningRecipe] = useState<Recipe | null>(null);
-  const [planDate, setPlanDate] = useState('2026-10-05');
+  const [planDate, setPlanDate] = useState(todayISO());
   const [planSlot, setPlanSlot] = useState<'Breakfast' | 'Lunch' | 'Dinner' | 'Snack'>('Dinner');
   const [planServings, setPlanServings] = useState(2);
 
@@ -119,10 +119,8 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
 
   // Collect all unique tags dynamically across recipes
   const allAvailableTags = useMemo(() => {
+    // Only tags that are actually on a recipe; they appear as you add recipes
     const counts: Record<string, number> = {};
-    visibleSuggestions.forEach(t => {
-      counts[t] = 0;
-    });
 
     recipes.forEach(r => {
       (r.tags || []).forEach(t => {
@@ -134,9 +132,9 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
     });
 
     return Object.entries(counts)
-      .filter(([name, count]) => count > 0 || visibleSuggestions.includes(name))
+      .filter(([, count]) => count > 0)
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }, [recipes, visibleSuggestions]);
+  }, [recipes]);
 
   // Calculate costs and matches for all recipes
   const recipeAnalyses = useMemo(() => {
@@ -623,11 +621,8 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    const where = count > 0 ? ` from ${count} recipe${count === 1 ? '' : 's'}` : '';
-                    if (window.confirm(`Remove the "${tagName}" tag${where}? It will also disappear from the tag list.`)) {
-                      setSelectedTags(prev => prev.filter(t => t !== tagName));
-                      onDeleteTag(tagName);
-                    }
+                    setSelectedTags(prev => prev.filter(t => t !== tagName));
+                    onDeleteTag(tagName);
                   }}
                   className="-ml-1.5 px-1 py-1 rounded-r-lg text-stone-300 hover:text-red-600 hover:bg-red-50 text-xs"
                   title={`Remove the "${tagName}" tag`}
@@ -638,15 +633,6 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                 </span>
               );
             })}
-            {hiddenTags.length > 0 && (
-              <button
-                type="button"
-                onClick={onRestoreTags}
-                className="text-[11px] font-semibold text-stone-400 hover:text-emerald-700 px-1.5"
-              >
-                Restore {hiddenTags.length} removed
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -1089,6 +1075,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                   <button
                     onClick={() => {
                       setPlanningRecipe(selectedRecipeDetail);
+                      setPlanServings(servingsOverride);
                       setSelectedRecipeDetail(null);
                     }}
                     className="px-4 py-2 border border-stone-300 text-stone-700 rounded-xl text-xs font-semibold hover:bg-stone-100 flex items-center space-x-1.5"
@@ -1378,15 +1365,12 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                         }}
                         className="flex-1 px-2.5 py-1.5 border border-stone-300 rounded-lg text-xs"
                       />
-                      <input
-                        type="number"
-                        step="0.1"
-                        min="0.1"
+                      <NumberField
                         placeholder="Qty"
                         value={ing.quantity}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const updated = [...newRecIngredients];
-                          updated[idx].quantity = parseFloat(e.target.value) || 1;
+                          updated[idx] = { ...updated[idx], quantity: v ?? 0 };
                           setNewRecIngredients(updated);
                         }}
                         className="w-16 px-2 py-1.5 border border-stone-300 rounded-lg text-xs"

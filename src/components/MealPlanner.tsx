@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { InventoryItem, PlannedMeal, Recipe, ShoppingItem } from '../types';
+import { mondayOfWeekISO, todayISO } from '../utils/inventoryMerge';
 import { forecastInventoryDeductions, generateShoppingListFromMealPlan } from '../utils/inventoryForecaster';
 
 interface MealPlannerProps {
@@ -43,8 +44,9 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
   onAutoGenerateShoppingList,
   onCookPlannedMeal,
 }) => {
-  // Current anchor date is 2026-10-05 (Monday)
-  const [weekStartDate, setWeekStartDate] = useState<Date>(new Date('2026-10-05T00:00:00'));
+  // The planner opens on the Monday of the current week
+  const currentWeekStart = () => new Date(`${mondayOfWeekISO(todayISO())}T00:00:00`);
+  const [weekStartDate, setWeekStartDate] = useState<Date>(currentWeekStart);
   const [selectedSlotForAdd, setSelectedSlotForAdd] = useState<{ date: string; slot: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack' } | null>(null);
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>('');
   const [customMealName, setCustomMealName] = useState<string>('');
@@ -54,12 +56,12 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
   // Generate 7 days of the week starting from weekStartDate
   const weekDays = useMemo(() => {
     const days: { dateStr: string; dayName: string; dayNum: number; isToday: boolean }[] = [];
-    const todayStr = '2026-10-05';
+    const todayStr = todayISO();
 
     for (let i = 0; i < 7; i++) {
       const d = new Date(weekStartDate);
       d.setDate(d.getDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
       const dayNum = d.getDate();
       days.push({
@@ -95,7 +97,7 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
   };
 
   const handleResetToCurrentWeek = () => {
-    setWeekStartDate(new Date('2026-10-05T00:00:00'));
+    setWeekStartDate(currentWeekStart());
   };
 
   const handleConfirmAddMeal = (e: React.FormEvent) => {

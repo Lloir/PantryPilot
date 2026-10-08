@@ -1,5 +1,6 @@
 import { InventoryItem, Recipe, RecipeIngredient } from '../types';
 import { convertQuantity } from './units';
+import { todayISO } from './inventoryMerge';
 
 // Unit conversion lives in utils/units.ts (same-kind only: no mass <-> volume).
 export function normalizeQuantity(quantity: number, fromUnit: string, toUnit: string): number | null {
@@ -67,7 +68,7 @@ export function calculateRecipeCostAndMatch(
   const servings = customServings || recipe.servings;
   const servingRatio = servings / recipe.servings;
 
-  const today = new Date('2026-10-05T00:00:00'); // current date in context
+  const today = new Date(`${todayISO()}T00:00:00`);
 
   let totalCost = 0;
   let inStockCount = 0;
