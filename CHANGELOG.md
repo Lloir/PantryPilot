@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-10-08 (5)
+
+### Added
+- **Real barcode lookup.** Scanned or typed barcodes are now looked up in [Open Food Facts](https://world.openfoodfacts.org) (a free worldwide product database; UK, US, Europe and more), then UPCitemdb, and barcodelookup.com if you set `BARCODE_LOOKUP_API_KEY`. EAN-8, UPC-A and EAN-13 all work, and the same product is matched whether or not the number has leading zeros. Before this it only knew about 13 built-in products and called everything else "Grocery Item".
+- **PantryPal remembers your barcodes.** When you confirm an item with a barcode, the name, category, size, price and shelf life you confirmed are saved, and the next scan fills them in ("Saved by your household").
+- **Add & scan next** button: adds the item and stays in the scanner for the next one.
+- **Start over** link to clear the scanner form.
+
+### Changed
+- If a barcode isn't found anywhere, the form is left empty with a message, instead of inventing "Grocery Item (#1234) / Generic Store Brand / 2.99". Prices are only filled in when a database actually has one (never from an AI guess), and the price field is optional.
+- The barcode form and a scanned receipt are kept on your device until you add them or start over, so leaving the page, closing the app or reloading no longer loses them.
+
+### Fixed
+- Camera scanning could never detect **EAN-8** barcodes (common on UK and EU products); it now asks the browser for every product barcode type it supports.
+- Typing or scanning a new barcode while an old one was still in the box appended to it; the box now selects its contents when you click into it.
+
 ## 2026-10-08 (4)
 
 ### Fixed

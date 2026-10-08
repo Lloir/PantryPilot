@@ -63,7 +63,20 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
   const measureMode = useMeasureMode();
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [scanResult, setScanResult] = useState<ReceiptScanResult | null>(null);
+  // A scanned receipt you haven't added yet is kept on this device, so leaving the page doesn't cost you another scan
+  const [scanResult, setScanResult] = useState<ReceiptScanResult | null>(() => {
+    try {
+      const raw = localStorage.getItem('pantrypal_receipt_draft');
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return null;
+  });
+  React.useEffect(() => {
+    try {
+      if (scanResult) localStorage.setItem('pantrypal_receipt_draft', JSON.stringify(scanResult));
+      else localStorage.removeItem('pantrypal_receipt_draft');
+    } catch (e) {}
+  }, [scanResult]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [cameraProblem, setCameraProblem] = useState<CameraProblem | null>(null);
   const [secureUrl, setSecureUrl] = useState<string | null>(null);
@@ -276,6 +289,8 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
       purchaseDate,
       rewardsPoints: scanResult.rewardsPoints,
     });
+    setScanResult(null);
+    setImagePreview(null);
     onClose();
   };
 

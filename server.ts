@@ -242,7 +242,7 @@ const requireAdmin = (_req: Request, res: Response, next: () => void) => {
 };
 
 // AI calls cost money and only matter to people who can edit, so view-only members are kept out
-app.use(['/api/scan-receipt', '/api/suggest-recipes', '/api/barcode-lookup'], (_req: Request, res: Response, next) => {
+app.use(['/api/scan-receipt', '/api/suggest-recipes', '/api/barcode-lookup', '/api/barcode-save'], (_req: Request, res: Response, next) => {
   if (!canEdit(authOf(res))) return res.status(403).json({ error: 'View-only members cannot use scanning or AI suggestions' });
   next();
 });
@@ -693,6 +693,152 @@ app.get('/twa-manifest.json', (_req: Request, res: Response) => {
   res.sendFile(twaPath);
 });
 
+
+// --- Barcode lookup ---------------------------------------------------------
+// Order: what your household saved -> built-in list -> Open Food Facts (free, worldwide)
+//        -> barcodelookup.com (if BARCODE_LOOKUP_API_KEY is set) -> UPCitemdb (free, limited)
+//        -> Gemini guess -> "not found"
+const BARCODE_CACHE_FILE = path.join(DATA_DIR, 'barcode-cache.json');
+// "0012345678905", "012345678905" and "12345678905" are the same product, so ignore leading zeros
+const barcodeKey = (code: string) => code.replace(/\D/g, '').replace(/^0+/, '');
+
+function readBarcodeCache(): Record<string, any> {
+  try {
+    if (fs.existsSync(BARCODE_CACHE_FILE)) return JSON.parse(fs.readFileSync(BARCODE_CACHE_FILE, 'utf-8'));
+  } catch (e) {
+    console.warn('Could not read barcode-cache.json:', e);
+  }
+  return {};
+}
+
+type CategoryGuess = { category: string; location: string; shelfDays: number };
+const CATEGORY_RULES: { test: RegExp; guess: CategoryGuess }[] = [
+  { test: /\b(frozen|ice[- ]?cream)\b/i, guess: { category: 'Frozen', location: 'Freezer', shelfDays: 180 } },
+  { test: /\b(eggs?)\b/i, guess: { category: 'Dairy & Eggs', location: 'Fridge', shelfDays: 28 } },
+  { test: /\b(dair|milk|cheese|yogh?urt|butter|cream|kefir)/i, guess: { category: 'Dairy & Eggs', location: 'Fridge', shelfDays: 14 } },
+  { test: /\b(meat|beef|pork|poultry|chicken|turkey|lamb|bacon|sausage|fish|seafood|salmon|tuna|shrimp|prawn)/i, guess: { category: 'Meat & Seafood', location: 'Fridge', shelfDays: 4 } },
+  { test: /\b(fruit|vegetable|produce|salad|herb|potato|tomato|apple|banana|berr(y|ies))/i, guess: { category: 'Produce', location: 'Fridge', shelfDays: 7 } },
+  { test: /\b(bread|bakery|pastr|bun|bagel|cake|tortilla|wrap)/i, guess: { category: 'Bakery', location: 'Counter', shelfDays: 5 } },
+  { test: /\b(canned|tinned|jar|preserve|beans?|soup)/i, guess: { category: 'Canned & Jarred', location: 'Pantry', shelfDays: 730 } },
+  { test: /\b(spice|sauce|condiment|oil|vinegar|ketchup|mustard|mayo|dressing|seasoning|salt|pepper)/i, guess: { category: 'Spices & Condiments', location: 'Pantry', shelfDays: 365 } },
+  { test: /\b(beverage|drink|water|juice|soda|cola|tea|coffee|beer|wine)/i, guess: { category: 'Beverages', location: 'Pantry', shelfDays: 180 } },
+  { test: /\b(snack|crisps?|chips|biscuit|cookie|chocolate|candy|sweet|confection|nut)/i, guess: { category: 'Snacks', location: 'Pantry', shelfDays: 180 } },
+  { test: /\b(cereal|pasta|rice|flour|grain|noodle|oat|sugar|baking)/i, guess: { category: 'Pantry & Grains', location: 'Pantry', shelfDays: 365 } },
+];
+
+function guessCategory(text: string): CategoryGuess {
+  return CATEGORY_RULES.find(r => r.test.test(text))?.guess ?? { category: 'Other', location: 'Pantry', shelfDays: 60 };
+}
+
+// "500 g", "1.5 L", "75cl", "12 eggs", "6" -> { quantity, unit }
+function parsePackSize(raw: unknown): { quantity: number; unit: string } {
+  const m = String(raw ?? '').toLowerCase().replace(',', '.').match(/(\d+(?:\.\d+)?)\s*(kg|g|ml|cl|l|oz|lb|fl\.? ?oz)?/);
+  if (!m) return { quantity: 1, unit: 'count' };
+  let quantity = Number(m[1]);
+  let unit = (m[2] || 'count').replace(/\./g, '').replace(/\s/g, ' ');
+  if (unit === 'cl') { quantity *= 10; unit = 'ml'; }
+  if (unit === 'floz') unit = 'fl oz';
+  return { quantity, unit };
+}
+
+const lookupHeaders = { 'User-Agent': 'PantryPal/1.0 (self-hosted pantry app)' };
+
+function toResult(code: string, base: {
+  name: string; brand?: string; categoryText: string; pack?: unknown; price?: number; source: string;
+}) {
+  const g = guessCategory(base.categoryText || base.name);
+  const { quantity, unit } = parsePackSize(base.pack);
+  return {
+    barcode: code,
+    name: base.name,
+    brand: base.brand || undefined,
+    category: g.category,
+    averagePrice: base.price && base.price > 0 ? Number(base.price.toFixed(2)) : 0, // never invent a price
+    standardQuantity: quantity,
+    standardUnit: unit,
+    estimatedShelfLifeDays: g.shelfDays,
+    storageLocation: g.location,
+    foundInDatabase: true,
+    source: base.source,
+  };
+}
+
+async function lookupOpenFoodFacts(code: string) {
+  // Try the code as typed, plus the UPC-A/EAN-13 forms of the same number
+  const digits = code.replace(/\D/g, '');
+  const variants = Array.from(new Set([digits, digits.length === 12 ? `0${digits}` : '', digits.length === 13 && digits.startsWith('0') ? digits.slice(1) : '']))
+    .filter(Boolean);
+  for (const v of variants) {
+    const r = await fetch(
+      `https://world.openfoodfacts.org/api/v2/product/${v}.json?fields=product_name,generic_name,brands,categories_tags,quantity`,
+      { headers: lookupHeaders, signal: AbortSignal.timeout(6000) }
+    );
+    if (!r.ok) continue;
+    const data: any = await r.json();
+    const p = data?.product;
+    const name = (p?.product_name || p?.generic_name || '').trim();
+    if (data?.status === 1 && name) {
+      const brand = String(p.brands || '').split(',')[0].trim();
+      const tags = Array.isArray(p.categories_tags) ? p.categories_tags.map((t: string) => t.replace(/^[a-z]{2}:/, '').replace(/-/g, ' ')).join(' ') : '';
+      return toResult(code, { name, brand, categoryText: `${tags} ${name}`, pack: p.quantity, source: 'open_food_facts' });
+    }
+  }
+  return null;
+}
+
+async function lookupBarcodeLookupCom(code: string) {
+  const key = process.env.BARCODE_LOOKUP_API_KEY;
+  if (!key) return null;
+  const r = await fetch(`https://api.barcodelookup.com/v3/products?barcode=${encodeURIComponent(code)}&formatted=y&key=${encodeURIComponent(key)}`, {
+    headers: lookupHeaders, signal: AbortSignal.timeout(6000),
+  });
+  if (!r.ok) return null;
+  const p: any = ((await r.json()) as any)?.products?.[0];
+  if (!p?.title) return null;
+  const price = Number(p.stores?.map((s: any) => Number(s.price)).find((n: number) => n > 0)) || 0;
+  return toResult(code, { name: p.title, brand: p.brand, categoryText: `${p.category || ''} ${p.title}`, pack: p.size || p.title, price, source: 'barcodelookup_com' });
+}
+
+async function lookupUpcItemDb(code: string) {
+  const r = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`, {
+    headers: lookupHeaders, signal: AbortSignal.timeout(6000),
+  });
+  if (!r.ok) return null;
+  const p: any = ((await r.json()) as any)?.items?.[0];
+  if (!p?.title) return null;
+  const price = Number(p.lowest_recorded_price) || 0;
+  return toResult(code, { name: p.title, brand: p.brand, categoryText: `${p.category || ''} ${p.title}`, pack: p.size || p.title, price, source: 'upcitemdb' });
+}
+
+// Remember what your household corrected, so the same barcode is right next time
+app.post('/api/barcode-save', (req: Request, res: Response) => {
+  const b = req.body || {};
+  const code = String(b.barcode || '').trim();
+  const name = String(b.name || '').trim().slice(0, 200);
+  if (!barcodeKey(code) || !name) return res.status(400).json({ error: 'Barcode and name are required' });
+  const cache = readBarcodeCache();
+  cache[barcodeKey(code)] = {
+    barcode: code,
+    name,
+    brand: undefined,
+    category: String(b.category || 'Other'),
+    averagePrice: Number(b.averagePrice) > 0 ? Number(b.averagePrice) : 0,
+    standardQuantity: Number(b.standardQuantity) > 0 ? Number(b.standardQuantity) : 1,
+    standardUnit: String(b.standardUnit || 'count').slice(0, 20),
+    estimatedShelfLifeDays: Number(b.estimatedShelfLifeDays) > 0 ? Math.round(Number(b.estimatedShelfLifeDays)) : 30,
+    storageLocation: String(b.storageLocation || 'Pantry'),
+    foundInDatabase: true,
+    source: 'saved',
+  };
+  try {
+    writeFileAtomic(BARCODE_CACHE_FILE, JSON.stringify(cache, null, 2));
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Could not save barcode-cache.json:', e);
+    res.status(500).json({ error: 'Could not save the barcode' });
+  }
+});
+
 // API: Barcode Lookup
 app.post('/api/barcode-lookup', async (req: Request, res: Response) => {
   try {
@@ -703,6 +849,14 @@ app.post('/api/barcode-lookup', async (req: Request, res: Response) => {
     }
 
     const cleanBarcode = barcode.trim();
+
+    // 0. Anything this household saved before
+    const saved = readBarcodeCache()[barcodeKey(cleanBarcode)];
+    if (saved) {
+      res.json({ ...saved, barcode: cleanBarcode });
+      return;
+    }
+
     // 1. Check local catalog first
     if (SERVER_BARCODE_DATABASE[cleanBarcode]) {
       res.json({
@@ -710,6 +864,19 @@ app.post('/api/barcode-lookup', async (req: Request, res: Response) => {
         source: 'local_database',
       });
       return;
+    }
+
+    // 1b. Real product databases (each is skipped quietly if it is unreachable)
+    for (const lookup of [lookupOpenFoodFacts, lookupBarcodeLookupCom, lookupUpcItemDb]) {
+      try {
+        const found = await lookup(cleanBarcode);
+        if (found) {
+          res.json(found);
+          return;
+        }
+      } catch (e) {
+        console.warn(`Barcode lookup via ${lookup.name} failed:`, (e as Error).message);
+      }
     }
 
     // 2. If Gemini is available, query Gemini to identify or enrich the barcode
@@ -753,7 +920,7 @@ Return a JSON object with:
             barcode: cleanBarcode,
             ...parsed,
             foundInDatabase: true,
-            source: 'gemini_enrichment',
+            source: 'gemini_guess',
           });
           return;
         }
@@ -762,19 +929,18 @@ Return a JSON object with:
       }
     }
 
-    // 3. Fallback for unrecognized barcode
+    // 3. Not found anywhere: say so, and leave the details for the person to fill in
     res.json({
       barcode: cleanBarcode,
-      name: `Grocery Item (#${cleanBarcode.slice(-4)})`,
-      brand: 'Generic Store Brand',
-      category: 'Pantry & Grains',
-      averagePrice: 2.99,
+      name: '',
+      category: 'Other',
+      averagePrice: 0,
       standardQuantity: 1,
-      standardUnit: 'item',
+      standardUnit: 'count',
       estimatedShelfLifeDays: 30,
       storageLocation: 'Pantry',
       foundInDatabase: false,
-      source: 'smart_fallback',
+      source: 'not_found',
     });
   } catch (err: any) {
     console.error('Error in barcode lookup:', err);

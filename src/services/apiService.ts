@@ -124,3 +124,15 @@ export async function deleteRequestApi(id: string): Promise<HouseholdRequest[]> 
     await fetch(`/api/requests/${encodeURIComponent(id)}`, jsonInit('DELETE')), 'Could not remove request');
   return data.requests;
 }
+
+/** Remember a barcode's details (as corrected by the household) so the next scan is right. */
+export async function saveBarcodeApi(details: {
+  barcode: string; name: string; category: string; averagePrice: number; standardQuantity: number;
+  standardUnit: string; estimatedShelfLifeDays: number; storageLocation: string;
+}): Promise<void> {
+  await fetch('/api/barcode-save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(details),
+  });
+}

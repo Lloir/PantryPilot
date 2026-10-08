@@ -23,7 +23,7 @@ import { normalizeUnit } from '../utils/units';
 import { addDaysISO, todayISO } from '../utils/inventoryMerge';
 import { ItemCategory, StorageLocation, BarcodeLookupResult } from '../types';
 import { COMMON_BARCODES_DATABASE } from '../data/initialData';
-import { lookupBarcodeApi } from '../services/apiService';
+import { lookupBarcodeApi, saveBarcodeApi } from '../services/apiService';
 
 interface BarcodeScannerModalProps {
   isOpen: boolean;
@@ -59,30 +59,67 @@ const CATEGORIES: ItemCategory[] = [
 
 const LOCATIONS: StorageLocation[] = ['Fridge', 'Freezer', 'Pantry', 'Counter', 'Spice Rack'];
 
+// What you're in the middle of adding is kept on this device, so leaving the page (or the app) doesn't lose it
+const DRAFT_KEY = 'pantrypal_barcode_draft';
+interface Draft {
+  barcodeInput: string;
+  lookupResult: BarcodeLookupResult | null;
+  errorMessage: string | null;
+  itemName: string;
+  category: ItemCategory;
+  quantity: number;
+  unit: string;
+  price: number | undefined;
+  location: StorageLocation;
+  purchaseDate: string;
+  expirationDate: string;
+  notes: string;
+}
+const loadDraft = (): Partial<Draft> => {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return {};
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  saved: 'Saved by your household',
+  local_database: 'Built-in list',
+  open_food_facts: 'Open Food Facts',
+  barcodelookup_com: 'Barcode Lookup',
+  upcitemdb: 'UPCitemdb',
+  gemini_guess: 'AI guess: please check the details',
+};
+
+const daysBetween = (from: string, to: string) =>
+  Math.max(1, Math.round((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86400000));
+
 export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   isOpen,
   onClose,
   onAddItemToInventory,
 }) => {
   const { fmt, symbol } = useCurrency();
-  const [barcodeInput, setBarcodeInput] = useState('');
+  const [draft0] = useState<Partial<Draft>>(loadDraft);
+  const [barcodeInput, setBarcodeInput] = useState(draft0.barcodeInput ?? '');
   const [isScanningCamera, setIsScanningCamera] = useState(false);
   const [isLookingUp, setIsLookingUp] = useState(false);
-  const [lookupResult, setLookupResult] = useState<BarcodeLookupResult | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lookupResult, setLookupResult] = useState<BarcodeLookupResult | null>(draft0.lookupResult ?? null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(draft0.errorMessage ?? null);
   const [cameraProblem, setCameraProblem] = useState<CameraProblem | null>(null);
   const [secureUrl, setSecureUrl] = useState<string | null>(null);
 
   // Editable item form fields
-  const [itemName, setItemName] = useState('');
-  const [category, setCategory] = useState<ItemCategory>('Pantry & Grains');
-  const [quantity, setQuantity] = useState<number>(1);
-  const [unit, setUnit] = useState<string>('count');
-  const [price, setPrice] = useState<number>(2.99);
-  const [location, setLocation] = useState<StorageLocation>('Pantry');
-  const [purchaseDate, setPurchaseDate] = useState<string>(todayISO());
-  const [expirationDate, setExpirationDate] = useState<string>(addDaysISO(todayISO(), 14));
-  const [notes, setNotes] = useState<string>('');
+  const [itemName, setItemName] = useState(draft0.itemName ?? '');
+  const [category, setCategory] = useState<ItemCategory>(draft0.category ?? 'Pantry & Grains');
+  const [quantity, setQuantity] = useState<number>(draft0.quantity ?? 1);
+  const [unit, setUnit] = useState<string>(draft0.unit ?? 'count');
+  const [price, setPrice] = useState<number | undefined>(draft0.price);
+  const [location, setLocation] = useState<StorageLocation>(draft0.location ?? 'Pantry');
+  const [purchaseDate, setPurchaseDate] = useState<string>(draft0.purchaseDate ?? todayISO());
+  const [expirationDate, setExpirationDate] = useState<string>(draft0.expirationDate ?? addDaysISO(todayISO(), 14));
+  const [notes, setNotes] = useState<string>(draft0.notes ?? '');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -99,6 +136,36 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
     setIsScanningCamera(false);
   }, []);
+
+  // Keep the draft on this device until it is added or cleared
+  useEffect(() => {
+    try {
+      if (!itemName && !barcodeInput && !lookupResult) {
+        localStorage.removeItem(DRAFT_KEY);
+      } else {
+        const draft: Draft = {
+          barcodeInput, lookupResult, errorMessage, itemName, category, quantity, unit, price,
+          location, purchaseDate, expirationDate, notes,
+        };
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      }
+    } catch (e) {}
+  }, [barcodeInput, lookupResult, errorMessage, itemName, category, quantity, unit, price, location, purchaseDate, expirationDate, notes]);
+
+  const clearDraft = () => {
+    setBarcodeInput('');
+    setLookupResult(null);
+    setErrorMessage(null);
+    setItemName('');
+    setCategory('Pantry & Grains');
+    setQuantity(1);
+    setUnit('count');
+    setPrice(undefined);
+    setLocation('Pantry');
+    setPurchaseDate(todayISO());
+    setExpirationDate(addDaysISO(todayISO(), 14));
+    setNotes('');
+  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -119,31 +186,25 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     setErrorMessage(null);
 
     try {
-      // First check local catalog
-      if (COMMON_BARCODES_DATABASE[code]) {
-        populateFromData(COMMON_BARCODES_DATABASE[code]);
-        setIsLookingUp(false);
-        return;
-      }
-
-      // Query server / Gemini enrichment
+      // The server checks your saved barcodes, then product databases, then falls back to an AI guess
       const res = await lookupBarcodeApi(code);
       populateFromData(res);
+      if (!res.foundInDatabase) {
+        setErrorMessage("This barcode wasn't found in any product database. Fill in the details once and PantryPal will remember it next time.");
+      }
     } catch (err: any) {
       console.warn('Barcode lookup error:', err);
-      // Smart fallback
-      populateFromData({
-        barcode: code,
-        name: `Grocery Item (${code.slice(-4)})`,
-        category: 'Pantry & Grains',
-        averagePrice: 2.99,
-        standardQuantity: 1,
-        standardUnit: 'item',
-        estimatedShelfLifeDays: 30,
-        storageLocation: 'Pantry',
-        foundInDatabase: false
-      });
-      setErrorMessage('Barcode not recognized in standard catalog. You can customize the item details below.');
+      // Offline or server problem: fall back to the small built-in list, otherwise let them type it in
+      const builtIn = COMMON_BARCODES_DATABASE[code];
+      if (builtIn) {
+        populateFromData(builtIn);
+      } else {
+        populateFromData({
+          barcode: code, name: '', category: 'Other', averagePrice: 0, standardQuantity: 1, standardUnit: 'count',
+          estimatedShelfLifeDays: 30, storageLocation: 'Pantry', foundInDatabase: false, source: 'not_found',
+        });
+        setErrorMessage("Couldn't reach the product databases. Fill in the details and PantryPal will remember this barcode.");
+      }
     } finally {
       setIsLookingUp(false);
     }
@@ -155,16 +216,15 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     setCategory(data.category);
     setQuantity(data.standardQuantity || 1);
     setUnit(normalizeUnit(data.standardUnit || 'count'));
-    setPrice(data.averagePrice || 2.99);
+    // Only a real recorded price is used; a guess or nothing leaves the box empty
+    setPrice(data.source !== 'gemini_guess' && data.averagePrice > 0 ? data.averagePrice : undefined);
     setLocation(data.storageLocation || 'Pantry');
 
     const todayStr = todayISO();
     setPurchaseDate(todayStr);
 
     const shelfDays = data.estimatedShelfLifeDays || 14;
-    const expDate = new Date(`${todayStr}T00:00:00`);
-    expDate.setDate(expDate.getDate() + shelfDays);
-    setExpirationDate(expDate.toISOString().split('T')[0]);
+    setExpirationDate(addDaysISO(todayStr, shelfDays));
 
     setNotes(data.barcode ? `Barcode: ${data.barcode}` : '');
   };
@@ -190,9 +250,14 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
       // Check if BarcodeDetector API is supported in modern browsers
       if ('BarcodeDetector' in window) {
-        const barcodeDetector = new (window as any).BarcodeDetector({
-          formats: ['ean_13', 'upc_a', 'upc_e', 'code_128', 'qr_code']
-        });
+        // Ask for every product-barcode type the browser can read (EAN-8 is common on UK/EU products)
+        const wanted = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code'];
+        let formats = wanted;
+        try {
+          const supported: string[] = await (window as any).BarcodeDetector.getSupportedFormats();
+          formats = wanted.filter(f => supported.includes(f));
+        } catch (e) {}
+        const barcodeDetector = new (window as any).BarcodeDetector({ formats });
 
         scanIntervalRef.current = setInterval(async () => {
           if (videoRef.current && videoRef.current.readyState === 4) {
@@ -217,29 +282,50 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const submitItem = (keepOpen: boolean) => {
     if (!itemName.trim()) {
       alert('Please enter an item name');
       return;
     }
+    const totalCost = price ?? 0;
+    const code = (barcodeInput || lookupResult?.barcode || '').trim();
 
     onAddItemToInventory({
       name: itemName.trim(),
       category,
       quantity,
       unit,
-      unitPrice: Number((price / (quantity || 1)).toFixed(2)),
-      totalCost: price,
+      unitPrice: Number((totalCost / (quantity || 1)).toFixed(2)),
+      totalCost,
       purchaseDate,
       expirationDate,
       location,
-      barcode: barcodeInput || lookupResult?.barcode,
+      barcode: code || undefined,
       notes: notes.trim()
     });
 
+    // Remember these details for this barcode, so the next scan fills in what you confirmed
+    if (code) {
+      saveBarcodeApi({
+        barcode: code,
+        name: itemName.trim(),
+        category,
+        averagePrice: totalCost,
+        standardQuantity: quantity,
+        standardUnit: unit,
+        estimatedShelfLifeDays: daysBetween(purchaseDate, expirationDate),
+        storageLocation: location,
+      }).catch(() => {});
+    }
+
     stopCamera();
-    onClose();
+    clearDraft();
+    if (!keepOpen) onClose();
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    submitItem(false);
   };
 
   return (
@@ -326,13 +412,15 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 type="text"
                 value={barcodeInput}
                 onChange={(e) => setBarcodeInput(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                inputMode="numeric"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
                     handleLookup(barcodeInput);
                   }
                 }}
-                placeholder="Enter 12 or 13 digit UPC/EAN barcode..."
+                placeholder="Type or scan the barcode number (8, 12 or 13 digits)..."
                 className="w-full pl-9 pr-4 py-2 border border-stone-300 rounded-xl text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
               />
             </div>
@@ -359,10 +447,18 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               <h3 className="text-xs font-bold text-stone-700 uppercase tracking-wider">
                 Item Details (Review & Edit)
               </h3>
+              {(itemName || barcodeInput || lookupResult) && (
+                <button type="button" onClick={clearDraft} className="text-[11px] font-semibold text-stone-500 hover:text-stone-800 underline">
+                  Start over
+                </button>
+              )}
               {lookupResult && (
                 <span className="text-[11px] text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full font-semibold flex items-center space-x-1">
                   <Sparkles className="w-3 h-3" />
-                  <span>Database Match: {fmt(lookupResult.averagePrice)} Avg</span>
+                  <span>
+                    {SOURCE_LABEL[lookupResult.source ?? ''] ?? (lookupResult.foundInDatabase ? 'Database match' : 'Not found')}
+                    {lookupResult.averagePrice > 0 && lookupResult.source !== 'gemini_guess' ? ` · ${fmt(lookupResult.averagePrice)}` : ''}
+                  </span>
                 </span>
               )}
             </div>
@@ -427,10 +523,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1">Total Price ({symbol})</label>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">Total Price ({symbol}, optional)</label>
                 <NumberField
+                  allowEmpty
+                  placeholder="Optional"
                   value={price}
-                  onChange={(v) => setPrice(v ?? 0)}
+                  onChange={setPrice}
                   className="w-full px-3 py-1.5 bg-white border border-stone-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500"
                 />
               </div>
@@ -458,7 +556,16 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               </div>
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => submitItem(true)}
+                className="px-4 py-2.5 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 rounded-xl text-sm font-semibold inline-flex items-center space-x-2 transition-colors"
+                title="Add this item and stay here to scan the next one"
+              >
+                <Barcode className="w-4 h-4" />
+                <span>Add &amp; scan next</span>
+              </button>
               <button
                 type="submit"
                 className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold inline-flex items-center space-x-2 shadow-md transition-colors"
