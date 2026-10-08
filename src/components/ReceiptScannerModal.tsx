@@ -17,6 +17,7 @@ import {
 import { ItemCategory, ReceiptParsedItem, ReceiptScanResult, StorageLocation } from '../types';
 import { scanReceiptApi } from '../services/apiService';
 import { UnitSelect } from './UnitSelect';
+import { NumberField } from './NumberField';
 import { useMeasureMode } from '../context/SettingsContext';
 import { normalizeUnit, unitSupportedInMode } from '../utils/units';
 
@@ -528,12 +529,9 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
                             </select>
                           </td>
                           <td className="py-2 px-3">
-                            <input
-                              type="number"
-                              step="0.1"
-                              min="0.1"
+                            <NumberField
                               value={item.quantity}
-                              onChange={(e) => handleItemFieldChange(idx, 'quantity', parseFloat(e.target.value) || 1)}
+                              onChange={(v) => handleItemFieldChange(idx, 'quantity', v ?? 0)}
                               className="w-16 bg-stone-50 border border-stone-200 rounded px-1.5 py-0.5 text-xs text-right"
                             />
                           </td>

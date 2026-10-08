@@ -28,6 +28,10 @@ export interface InventoryItem {
   notes?: string;
   isExpiringSoon?: boolean; // computed or flag
   isAbundant?: boolean;
+  // Stock that was bought at different times. expirationDate always follows the
+  // soonest batch that has not expired yet.
+  batches?: { quantity: number; expirationDate: string }[];
+  latestUnitPrice?: number; // price per unit on the most recent purchase
 }
 
 export interface RecipeIngredient {
@@ -91,9 +95,9 @@ export interface ShoppingItem {
   id: string;
   name: string;
   category: ItemCategory;
-  quantity: number;
-  unit: string;
-  estimatedCost: number;
+  quantity?: number; // optional for hand-typed items
+  unit?: string;
+  estimatedCost?: number; // undefined = no price known
   checked: boolean;
   notes?: string;
   reason?: string; // e.g. "Needed for Chicken Stir Fry on Wed"

@@ -216,8 +216,6 @@ export function generateShoppingListFromMealPlan(
 
     if (!matchedItem) {
       // Completely missing from inventory
-      const estUnitCost = getEstimatedUnitPrice(needed.name, needed.category);
-      const estTotal = Number((needed.totalRequired * estUnitCost).toFixed(2));
       const mealList = Array.from(new Set(needed.neededForMeals.map(m => m.mealName))).join(', ');
 
       shoppingItems.push({
@@ -226,7 +224,7 @@ export function generateShoppingListFromMealPlan(
         category: needed.category,
         quantity: Math.ceil(needed.totalRequired * 10) / 10,
         unit: needed.unit,
-        estimatedCost: Math.max(1.49, estTotal),
+        // Not in the pantry, so there is no real price to show
         checked: false,
         reason: `Needed for: ${mealList}`,
         plannedDate: needed.neededForMeals[0]?.date
@@ -238,7 +236,7 @@ export function generateShoppingListFromMealPlan(
 
       if (matchedItem.quantity < neededInStockUnit) {
         const deficit = Number((neededInStockUnit - matchedItem.quantity).toFixed(2));
-        const estTotal = Number((deficit * matchedItem.unitPrice).toFixed(2));
+        const estTotal = Number((deficit * (matchedItem.latestUnitPrice ?? matchedItem.unitPrice)).toFixed(2));
         const mealList = Array.from(new Set(needed.neededForMeals.map(m => m.mealName))).join(', ');
 
         shoppingItems.push({
@@ -247,7 +245,7 @@ export function generateShoppingListFromMealPlan(
           category: matchedItem.category,
           quantity: Math.ceil(deficit * 10) / 10,
           unit: matchedItem.unit,
-          estimatedCost: Math.max(1.29, estTotal),
+          estimatedCost: estTotal > 0 ? estTotal : undefined,
           checked: false,
           reason: `Current stock (${matchedItem.quantity} ${matchedItem.unit}) will run out for: ${mealList}`,
           plannedDate: needed.neededForMeals[0]?.date
@@ -280,12 +278,4 @@ function guessCategory(name: string): ItemCategory {
     return 'Spices & Condiments';
   }
   return 'Produce';
-}
-
-function getEstimatedUnitPrice(name: string, category: ItemCategory): number {
-  if (category === 'Meat & Seafood') return 5.50;
-  if (category === 'Dairy & Eggs') return 2.80;
-  if (category === 'Produce') return 1.50;
-  if (category === 'Pantry & Grains') return 1.80;
-  return 2.00;
 }

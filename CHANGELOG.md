@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-08
+
+### Added
+- **Autofill when adding an item by hand.** Start typing a name and your pantry items are suggested; press Tab (or click) to fill in the name, category, unit and location. The form now says plainly when a name matches an existing item and will be added to it.
+- **Using rewards points.** A "Use" button next to "Add" subtracts points you spend. You can't use more than your balance.
+- **Menu.** The top-bar Unraid and Android APK buttons, Sign out and the Measure by switch now live in a hamburger menu next to the logo.
+- **Total Spent MTD** on Cost & Savings (replaces Estimated Savings): everything bought so far this calendar month.
+
+### Changed
+- **Expiration dates are tracked per purchase.** When you add more of an item you already have, each purchase keeps its own expiration date. The item shows the soonest one that hasn't passed yet, and moves on to the next one once it has. Using the item up draws from the soonest-expiring stock first. Setting a date by hand in the edit dialog replaces the per-purchase dates.
+- **Shopping list quantity and unit are optional** for items you type in.
+- **Shopping list prices come from your pantry.** The price is what you last paid for the exact same item name, scaled to the quantity. If the item isn't in your pantry (or there's no quantity), no price is shown instead of a made-up one. The auto-generated list no longer guesses prices either.
+- Manual "Add Item" cost is optional. Left blank, it uses the pantry's price for that item instead of counting it as free.
+- The recipe tag bar only shows tags that are on a recipe. Removing a tag no longer asks for confirmation, and the "Restore removed" button is gone.
+- The app now uses today's real date everywhere (planner week, expiry warnings, default purchase and expiry dates, AI prompts) instead of a fixed October 5.
+
+### Fixed
+- **Quantities below 1** (for example 0.75 l) can now be typed in every quantity and price field. The old fields rounded to 0.1 steps, rejected values like 0.75 on submit, and replaced an emptied box with 1 while typing.
+- Planning a meal from a recipe's detail view now starts at the servings you had selected instead of a stale number.
+- Meal planner week no longer risks showing the wrong dates in time zones ahead of UTC.
+
+### Not changed
+- Cooking history servings: cooking from the recipe view (4 servings) and from the planner (3 servings) both log the right count in testing. If you still see 1, tell us which screen you cooked from.
+
 ## 2026-10-07
 
 ### Added
@@ -20,5 +44,3 @@
 ### Fixed
 - **AI recipe generation no longer adds the same recipe repeatedly.** The server used to return one hard-coded fallback recipe whenever Gemini was unavailable. It now returns an error, sends existing recipe names to the model, and drops repeats. Saving a recipe with a name you already have is refused.
 
-### Known issues
-- The app still treats "today" as 2026-10-05 in the planner and shopping-list purchases.
