@@ -4,6 +4,11 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import http from 'http';
+import https from 'https';
+import net from 'net';
+import os from 'os';
+import selfsigned from 'selfsigned';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -14,6 +19,8 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// Browsers only allow the camera on https pages (or localhost), so a second, https port is offered too
+const HTTPS_PORT = process.env.HTTPS_DISABLED === 'true' ? null : Number(process.env.HTTPS_PORT || 3443);
 const isProd = process.env.NODE_ENV === 'production';
 
 // Persistent data directory (mount to /mnt/user/appdata/pantrypal on Unraid)
@@ -413,7 +420,8 @@ app.get('/api/health', (_req: Request, res: Response) => {
     status: 'ok',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-    isProduction: isProd
+    isProduction: isProd,
+    httpsPort: HTTPS_PORT
   });
 });
 
@@ -1014,6 +1022,55 @@ ${existingNames.length ? `8. The user already has these recipes, so do NOT sugge
   }
 });
 
+// Self-signed certificate for the https port. Kept in the data folder so it stays the same
+// across restarts, and re-made when it is about to expire or the addresses change.
+async function loadOrCreateCertificate(): Promise<{ key: string; cert: string }> {
+  const dir = path.join(DATA_DIR, 'tls');
+  const keyFile = path.join(dir, 'key.pem');
+  const certFile = path.join(dir, 'cert.pem');
+  const hostsFile = path.join(dir, 'hosts.txt');
+
+  const ips = new Set<string>(['127.0.0.1', '::1']);
+  const names = new Set<string>(['localhost', os.hostname()]);
+  Object.values(os.networkInterfaces()).forEach(list =>
+    (list ?? []).forEach(i => { if (!i.internal) ips.add(i.address); })
+  );
+  // Add the address you type into the browser (the Unraid server's IP or name) here if it is not detected
+  (process.env.HTTPS_HOSTNAMES || '').split(',').map(h => h.trim()).filter(Boolean).forEach(h => {
+    (net.isIP(h) ? ips : names).add(h);
+  });
+  const wanted = [...ips, ...names].sort().join(',');
+
+  try {
+    if (fs.existsSync(keyFile) && fs.existsSync(certFile) && fs.existsSync(hostsFile) && fs.readFileSync(hostsFile, 'utf-8') === wanted) {
+      const cert = fs.readFileSync(certFile, 'utf-8');
+      const daysLeft = (new Date(new crypto.X509Certificate(cert).validTo).getTime() - Date.now()) / 86400000;
+      if (daysLeft > 30) return { key: fs.readFileSync(keyFile, 'utf-8'), cert };
+    }
+  } catch (e) {
+    // fall through and make a new one
+  }
+
+  const altNames = [
+    ...[...names].map(value => ({ type: 2 as const, value })),
+    ...[...ips].map(ip => ({ type: 7 as const, ip })),
+  ];
+  const now = new Date();
+  const pems = await selfsigned.generate([{ name: 'commonName', value: 'PantryPal' }], {
+    keyType: 'ec',
+    curve: 'P-256',
+    algorithm: 'sha256',
+    notBeforeDate: now,
+    notAfterDate: new Date(now.getTime() + 365 * 86400000),
+    extensions: [{ name: 'subjectAltName', altNames }],
+  });
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(keyFile, pems.private, { encoding: 'utf-8', mode: 0o600 });
+  fs.writeFileSync(certFile, pems.cert, 'utf-8');
+  fs.writeFileSync(hostsFile, wanted, 'utf-8');
+  return { key: pems.private, cert: pems.cert };
+}
+
 // Configure Vite middleware in development or static serving in production
 async function startServer() {
   if (!isProd) {
@@ -1029,9 +1086,20 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, () => {
+  http.createServer(app).listen(Number(PORT), () => {
     console.log(`Server running on port ${PORT} (isProd: ${isProd})`);
   });
+
+  if (HTTPS_PORT) {
+    try {
+      const tls = await loadOrCreateCertificate();
+      https.createServer(tls, app).listen(HTTPS_PORT, () => {
+        console.log(`Secure (https) server on port ${HTTPS_PORT}. Use this address on phones so the camera works.`);
+      });
+    } catch (e) {
+      console.warn('Could not start the https server (the camera will only work on localhost):', e);
+    }
+  }
 }
 
 startServer();

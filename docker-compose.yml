@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
+      # https, so phone browsers allow the camera (open https://YOUR-SERVER-IP:3443)
+      - "3443:3443"
     volumes:
       # Persistent storage on Unraid cache/array
       - /mnt/user/appdata/pantrypal:/app/data
@@ -12,6 +14,8 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DATA_DIR=/app/data
+      # Optional: your server's IP, so the https certificate matches it
+      - HTTPS_HOSTNAMES=${HTTPS_HOSTNAMES:-}
       # Optional: Add your Gemini API key for smart receipt OCR & recipe generation
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     healthcheck:

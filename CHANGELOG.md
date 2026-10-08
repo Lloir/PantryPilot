@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-08 (4)
+
+### Fixed
+- **Camera never starting.** Browsers only allow the camera on https pages, so on `http://<server-ip>:3000` the camera was simply unavailable and the browser never asked for permission. The app now explains this instead of a vague error, and links to the secure address.
+
+### Added
+- **Secure (https) port 3443** with a self-made certificate (kept in the data folder, renewed automatically). Open `https://<server-ip>:3443` on your phone, accept the one-time certificate warning, and the camera works. The Unraid template, Dockerfile and compose file expose it; `HTTPS_HOSTNAMES` adds your server's IP to the certificate and `HTTPS_DISABLED=true` turns it off.
+- **Take Photo** on the receipt scanner: opens the phone's camera app and sends the photo back, which works on plain http too.
+- Clearer camera messages: permission blocked, no camera found, camera in use.
+
 ## 2026-10-08 (3)
 
 ### Added

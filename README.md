@@ -39,7 +39,7 @@ Done. 🎉
 Copy, paste, Enter:
 
 ```bash
-docker run -d --name pantrypal --restart unless-stopped -p 3000:3000 -v pantrypal-data:/app/data ghcr.io/lloir/pantrypilot:latest
+docker run -d --name pantrypal --restart unless-stopped -p 3000:3000 -p 3443:3443 -v pantrypal-data:/app/data ghcr.io/lloir/pantrypilot:latest
 ```
 
 Then go to `http://localhost:3000`. Done. 🎉
@@ -55,6 +55,29 @@ Get a free one at https://aistudio.google.com/apikey, then:
 
 - **Unraid:** paste it in the **Gemini API Key** box when adding the container.
 - **Docker:** add `-e GEMINI_API_KEY=your_key_here` to the command above.
+
+---
+
+## 📷 Camera for scanning (phones)
+
+Browsers only let a web page use the camera on a **secure (https)** address. Plain
+`http://YOUR-UNRAID-IP:3000` can't, and the browser won't even ask. PantryPal also runs on a
+second, secure port:
+
+```
+https://YOUR-UNRAID-IP:3443
+```
+
+Use that address on your phone when you want to scan. The first time, the browser warns that
+the certificate isn't trusted (PantryPal made it itself): tap **Advanced**, then **Continue**.
+After that the camera asks for permission like normal.
+
+- Unraid: the template has a **Secure (https) Port** (3443). If you installed earlier, run Step 2 again,
+  then edit the container and Apply, or just add a port mapping `3443 -> 3443`.
+- No camera or don't want the warning? **Scan Receipt -> Take Photo** opens your phone's camera app
+  and works on the normal `http` address too.
+- Optional: set `HTTPS_HOSTNAMES` to your server's IP so the certificate matches the address you type.
+  Turn the secure port off with `HTTPS_DISABLED=true`.
 
 ---
 
@@ -108,7 +131,7 @@ kid:kid-password [viewer]
 ```bash
 docker pull ghcr.io/lloir/pantrypilot:latest
 docker rm -f pantrypal
-docker run -d --name pantrypal --restart unless-stopped -p 3000:3000 -v pantrypal-data:/app/data ghcr.io/lloir/pantrypilot:latest
+docker run -d --name pantrypal --restart unless-stopped -p 3000:3000 -p 3443:3443 -v pantrypal-data:/app/data ghcr.io/lloir/pantrypilot:latest
 ```
 
 Your data is kept. It lives in the volume.
