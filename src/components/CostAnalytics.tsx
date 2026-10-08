@@ -319,7 +319,7 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
           Points printed on a receipt are added automatically when you scan it. Use Add to log points you earn and Use to subtract points you spend.
         </p>
 
-        <form onSubmit={(e) => { e.preventDefault(); submitRewards('earn'); }} className="grid grid-cols-2 md:grid-cols-5 gap-2 items-end text-xs">
+        <form onSubmit={(e) => { e.preventDefault(); submitRewards('earn'); }} className="edit-only grid grid-cols-2 md:grid-cols-5 gap-2 items-end text-xs">
           <div>
             <label className="block font-semibold text-stone-700 mb-1">Points</label>
             <input
@@ -396,7 +396,7 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
                   </span>
                   <button
                     onClick={() => onDeleteRewards(r.id)}
-                    className="text-stone-300 hover:text-red-600"
+                    className="edit-only text-stone-300 hover:text-red-600"
                     title="Delete entry"
                   >
                     <Trash2 className="w-3.5 h-3.5" />

@@ -167,3 +167,28 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = { measureMode: 'mass', currency: 'USD', hiddenTags: [] };
+
+export type Role = 'admin' | 'member' | 'viewer';
+
+export interface HouseholdUser {
+  username: string;
+  role: Role;
+}
+
+export type RequestType = 'shopping' | 'meal' | 'recipe' | 'other';
+
+export interface HouseholdRequest {
+  id: string;
+  type: RequestType;
+  text: string;
+  quantity?: number;
+  unit?: string;
+  date?: string; // YYYY-MM-DD, for meal requests
+  slot?: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
+  requestedBy: string;
+  createdAt: string;
+  status: 'open' | 'done' | 'declined';
+  resolvedBy?: string;
+  resolvedAt?: string;
+  note?: string;
+}

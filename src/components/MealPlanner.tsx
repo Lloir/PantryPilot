@@ -187,7 +187,7 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
           <div className="flex items-center space-x-3 shrink-0">
             <button
               onClick={handleTriggerAutoShopping}
-              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all flex items-center space-x-2"
+              className="edit-only px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all flex items-center space-x-2"
             >
               <ShoppingCart className="w-4 h-4" />
               <span>Auto-Generate Shopping List ({neededShoppingItems.length})</span>
@@ -313,7 +313,7 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
                           </span>
                           <button
                             onClick={() => setSelectedSlotForAdd({ date: day.dateStr, slot })}
-                            className="text-stone-400 hover:text-emerald-700 p-0.5 rounded"
+                            className="edit-only text-stone-400 hover:text-emerald-700 p-0.5 rounded"
                             title={`Add ${slot}`}
                           >
                             <Plus className="w-3 h-3" />
@@ -337,7 +337,7 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
                                 </span>
                                 <button
                                   onClick={() => onRemovePlannedMeal(meal.id)}
-                                  className="text-stone-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity ml-1"
+                                  className="edit-only text-stone-300 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity ml-1"
                                   title="Remove from plan"
                                 >
                                   <Trash2 className="w-3 h-3" />
@@ -347,7 +347,7 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
                                 <span>{meal.batchServings ? `${meal.servings}/day · cook ${meal.batchServings}` : `${meal.servings} serv`}</span>
                                 <button
                                   onClick={() => onCookPlannedMeal(meal)}
-                                  className="font-bold text-emerald-700 hover:underline"
+                                  className="edit-only font-bold text-emerald-700 hover:underline"
                                   title={meal.isLeftover ? 'Mark as eaten (nothing to deduct)' : 'Cook this meal now and deduct items'}
                                 >
                                   {meal.isLeftover ? 'Eat' : meal.batchServings ? 'Cook batch' : 'Cook'}
@@ -358,7 +358,7 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
                         ) : (
                           <button
                             onClick={() => setSelectedSlotForAdd({ date: day.dateStr, slot })}
-                            className="w-full py-1 text-[11px] text-stone-400 hover:text-emerald-700 hover:bg-stone-50 rounded-lg border border-dashed border-stone-200 transition-colors"
+                            className="edit-only w-full py-1 text-[11px] text-stone-400 hover:text-emerald-700 hover:bg-stone-50 rounded-lg border border-dashed border-stone-200 transition-colors"
                           >
                             + Plan
                           </button>

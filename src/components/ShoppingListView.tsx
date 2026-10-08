@@ -129,7 +129,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
           <button
             onClick={handleMoveToInventory}
             disabled={checkedCount === 0}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all flex items-center space-x-2"
+            className="edit-only px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all flex items-center space-x-2"
           >
             <PackagePlus className="w-4 h-4" />
             <span>Add Bought Items to Pantry ({checkedCount})</span>
@@ -138,7 +138,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
       </div>
 
       {/* Quick Add Custom Item Form */}
-      <form onSubmit={handleManualAdd} className="bg-white p-4 rounded-2xl border border-stone-200 shadow-2xs">
+      <form onSubmit={handleManualAdd} className="edit-only bg-white p-4 rounded-2xl border border-stone-200 shadow-2xs">
         <span className="text-xs font-bold text-stone-700 uppercase tracking-wider block mb-2">
           + Add Item to Shopping List
         </span>
@@ -222,7 +222,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
                         type="checkbox"
                         checked={item.checked}
                         onChange={() => onToggleItem(item.id)}
-                        className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
+                        className="edit-lock w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500"
                       />
                       <div>
                         <span className={`text-sm font-bold block ${item.checked ? 'line-through text-stone-400' : ''}`}>
@@ -245,7 +245,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
                       </span>
                       <button
                         onClick={() => onDeleteItem(item.id)}
-                        className="text-stone-300 hover:text-red-600 p-1 rounded"
+                        className="edit-only text-stone-300 hover:text-red-600 p-1 rounded"
                         title="Remove item"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

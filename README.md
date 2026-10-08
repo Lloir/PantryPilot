@@ -58,9 +58,11 @@ Get a free one at https://aistudio.google.com/apikey, then:
 
 ---
 
-## 🔐 Logging in
+## 🔐 Logging in, and sharing with your household
 
-PantryPal asks for a username and password.
+PantryPal asks for a username and password. **Everyone who signs in shares the same
+pantry, recipes, meal planner and shopping list.** Changes show up on everyone's
+screen within a few seconds.
 
 The first time it starts, it makes one login for you and prints it in the logs:
 
@@ -70,17 +72,30 @@ docker logs pantrypal
 
 Look for `username: admin` and `password: ...`.
 
+**Add family members** from the menu (the three lines next to the logo) -> **People & household**.
+Pick what each person can do:
+
+| Role | Can do |
+|---|---|
+| **Admin** | Everything, plus add/remove people and reset passwords |
+| **Member** | Look at and change the pantry, recipes, planner and shopping list |
+| **View only** | Look at everything and leave **Requests** (like "we're out of oat milk" or "can we have lasagna Friday?"). Cannot change anything |
+
+Requests show up on the **Requests** tab. Admins and members can turn a request into a
+shopping list item or a planned meal with one tap.
+
 The logins live in a plain text file in your data folder: `users.txt`
-(Unraid: `/mnt/user/appdata/pantrypal/users.txt`). One per line:
+(Unraid: `/mnt/user/appdata/pantrypal/users.txt`). One per line, and you can edit it by hand too:
 
 ```
-admin:your-password
-her-name:her-password
+admin:your-password [admin]
+her-name:her-password [member]
+kid:kid-password [viewer]
 ```
-
-Edit it any time to add people or change passwords. No restart needed.
 
 > Want no login at all? Add the variable `AUTH_DISABLED=true`.
+
+**Dark mode:** menu -> Theme -> Light, Dark, or Match device. This is per device.
 
 ---
 

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   InventoryItem, 
   Recipe, 
@@ -18,6 +18,13 @@ import {
   DEFAULT_SETTINGS
 } from './types';
 import { SettingsProvider } from './context/SettingsContext';
+import { useAuth } from './context/AuthContext';
+import { mergeStates, SyncedState } from './utils/syncMerge';
+import { ThemeChoice, loadTheme, saveTheme, applyTheme } from './utils/theme';
+import { HouseholdRequest } from './types';
+import { RequestsView } from './components/RequestsView';
+import { HouseholdModal } from './components/HouseholdModal';
+import { answerRequestApi, createRequestApi, deleteRequestApi, fetchRequestsApi } from './services/apiService';
 import { mergeIntoInventory, normalizeInventory, syncInventoryBatches, estimateCostFromPantry, todayISO, addDaysISO } from './utils/inventoryMerge';
 import { canonicalUnit } from './utils/units';
 import { formatMoney } from './utils/currency';
@@ -43,7 +50,8 @@ import { UnraidModal } from './components/UnraidModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
 
-export default function App({ onLogout }: { onLogout?: () => void }) {
+export default function App() {
+  const auth = useAuth();
   // Navigation
   const [activeTab, setActiveTab] = useState<ActiveTab>('inventory');
   const [recipeSearchQuery, setRecipeSearchQuery] = useState('');
@@ -53,6 +61,7 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
   const [isAPKModalOpen, setIsAPKModalOpen] = useState(false);
   const [isUnraidModalOpen, setIsUnraidModalOpen] = useState(false);
+  const [isHouseholdOpen, setIsHouseholdOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Android shortcuts handling on mount
@@ -68,7 +77,7 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
         setIsBarcodeModalOpen(true);
       }
 
-      if (tab && ['inventory', 'recipes', 'planner', 'shopping', 'analytics'].includes(tab)) {
+      if (tab && ['inventory', 'recipes', 'planner', 'shopping', 'analytics', 'requests'].includes(tab)) {
         setActiveTab(tab as ActiveTab);
       }
     } catch (e) {}
@@ -149,46 +158,127 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
     ...DEFAULT_SETTINGS,
     ...loadLocal<Partial<AppSettings>>('pantrypal_settings', {}),
   }));
+  // Theme is a per-device choice (not shared with the household)
+  const [theme, setTheme] = useState<ThemeChoice>(loadTheme);
+  useEffect(() => {
+    applyTheme(theme);
+    if (theme !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => applyTheme('system');
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [theme]);
+
+  // View-only members get a calmer screen: edit controls are hidden
+  useEffect(() => {
+    document.documentElement.classList.toggle('view-only', auth.role === 'viewer');
+    return () => document.documentElement.classList.remove('view-only');
+  }, [auth.role]);
+
+  // Requests from the household (separate from the pantry data so view-only people can send them)
+  const [requests, setRequests] = useState<HouseholdRequest[]>([]);
+  useEffect(() => {
+    const load = () => {
+      if (document.hidden) return;
+      fetchRequestsApi().then(setRequests).catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 10000);
+    document.addEventListener('visibilitychange', load);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', load);
+    };
+  }, []);
+  const openRequestsCount = requests.filter(r => r.status === 'open').length;
+
   // True once the server copy has been loaded (or the server is unreachable)
   const [hydrated, setHydrated] = useState(false);
 
-  // Sync with persistent backend (Unraid /app/data/pantry-db.json)
+  // --- Shared household data -------------------------------------------------
+  // The server keeps one copy for everyone. `revisionRef` is the version this device last
+  // saw, `lastSyncedRef` the content of that version. Saves send the revision; if someone
+  // else saved first the server answers 409 and the two sets of changes are merged.
+  const revisionRef = useRef(0);
+  const lastSyncedRef = useRef<SyncedState | null>(null);
+  const savingRef = useRef(false);
+  const latestRef = useRef<SyncedState>({ inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, settings });
+  latestRef.current = { inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, settings };
+
+  const toSyncedState = (data: any): SyncedState => ({
+    inventory: Array.isArray(data?.inventory) ? data.inventory : [],
+    recipes: Array.isArray(data?.recipes) ? data.recipes : [],
+    plannedMeals: Array.isArray(data?.plannedMeals) ? data.plannedMeals : [],
+    cookedLogs: Array.isArray(data?.cookedLogs) ? data.cookedLogs : [],
+    shoppingList: Array.isArray(data?.shoppingList) ? data.shoppingList : [],
+    purchaseLogs: Array.isArray(data?.purchaseLogs) ? data.purchaseLogs : [],
+    rewards: Array.isArray(data?.rewards) ? data.rewards : [],
+    settings: data?.settings && typeof data.settings === 'object' ? data.settings : {},
+  });
+
+  const applyState = (st: SyncedState) => {
+    setInventory(st.inventory);
+    setRecipes(st.recipes);
+    setPlannedMeals(st.plannedMeals);
+    setCookedLogs(st.cookedLogs);
+    setShoppingList(st.shoppingList);
+    setPurchaseLogs(st.purchaseLogs);
+    setRewards(st.rewards);
+    setSettings(prev => ({ ...prev, ...st.settings }));
+  };
+
+  const hasUnsavedChanges = () =>
+    !lastSyncedRef.current || JSON.stringify(latestRef.current) !== JSON.stringify(lastSyncedRef.current);
+
   useEffect(() => {
     fetch('/api/pantry-data')
       .then((res) => res.json())
       .then((data) => {
-        if (data) {
-          if (Array.isArray(data.purchaseLogs) && data.purchaseLogs.length > 0) {
-            setPurchaseLogs(data.purchaseLogs);
-          }
-          if (Array.isArray(data.rewards) && data.rewards.length > 0) {
-            setRewards(data.rewards);
-          }
-          if (data.settings && typeof data.settings === 'object') {
-            setSettings(prev => ({ ...prev, ...data.settings }));
-          }
-          if (Array.isArray(data.inventory) && data.inventory.length > 0) {
-            setInventory(data.inventory);
-          }
-          if (Array.isArray(data.recipes) && data.recipes.length > 0) {
-            setRecipes(data.recipes);
-          }
-          if (Array.isArray(data.plannedMeals) && data.plannedMeals.length > 0) {
-            setPlannedMeals(data.plannedMeals);
-          }
-          if (Array.isArray(data.cookedLogs) && data.cookedLogs.length > 0) {
-            setCookedLogs(data.cookedLogs);
-          }
-          if (Array.isArray(data.shoppingList) && data.shoppingList.length > 0) {
-            setShoppingList(data.shoppingList);
-          }
+        if (data && data.revision > 0) {
+          const server = toSyncedState(data);
+          applyState(server);
+          lastSyncedRef.current = server;
+          revisionRef.current = data.revision;
+        } else {
+          // Brand new server: this device's data (if any) becomes the household's first copy
+          revisionRef.current = 0;
+          lastSyncedRef.current = toSyncedState(null);
         }
       })
       .catch(() => {
         // Backend offline or local-only mode
       })
       .finally(() => setHydrated(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Pick up changes other people made (every few seconds, and when you come back to the tab)
+  useEffect(() => {
+    if (!hydrated) return;
+    const poll = () => {
+      if (document.hidden || savingRef.current) return;
+      fetch('/api/pantry-data')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (!data || !(data.revision > revisionRef.current) || savingRef.current) return;
+          // Our own unsaved edits are merged when they save (the server will answer 409)
+          if (auth.role !== 'viewer' && hasUnsavedChanges()) return;
+          const server = toSyncedState(data);
+          revisionRef.current = data.revision;
+          lastSyncedRef.current = server;
+          applyState(server);
+          if (data.updatedBy && data.updatedBy !== auth.user) showToast(`${data.updatedBy} updated the pantry`);
+        })
+        .catch(() => {});
+    };
+    const id = setInterval(poll, 8000);
+    document.addEventListener('visibilitychange', poll);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', poll);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
 
   // One-time migration: standardize units, merge existing duplicate rows and
   // seed the purchase history from what is already in the pantry.
@@ -230,27 +320,47 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
 
-  // Save to persistent server file on Unraid (debounced)
-  useEffect(() => {
-    if (!hydrated) return; // never overwrite the server copy before it has been read
-    const timer = setTimeout(() => {
-      fetch('/api/pantry-data', {
+  const saveToServer = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    const snap = latestRef.current;
+    try {
+      const res = await fetch('/api/pantry-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          inventory,
-          recipes,
-          plannedMeals,
-          cookedLogs,
-          shoppingList,
-          purchaseLogs,
-          rewards,
-          settings,
-        }),
-      }).catch(() => {});
-    }, 1200);
+        body: JSON.stringify({ ...snap, baseRevision: revisionRef.current }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        revisionRef.current = data.revision;
+        lastSyncedRef.current = snap;
+      } else if (res.status === 409) {
+        // Someone saved first: keep their changes and re-apply ours on top
+        const { current } = await res.json();
+        const server = toSyncedState(current);
+        const merged = mergeStates(lastSyncedRef.current ?? toSyncedState(null), snap, server);
+        revisionRef.current = current.revision;
+        lastSyncedRef.current = server;
+        applyState(merged);
+        showToast(`Combined your changes with ${current.updatedBy || 'someone else'}'s`);
+      } else if (res.status === 403) {
+        showToast('You have view-only access, so that change was not saved');
+      }
+    } catch (e) {
+      // offline: the next change tries again
+    } finally {
+      savingRef.current = false;
+    }
+  };
+
+  // Save to the server (debounced). Nothing is sent when the data matches what the server has.
+  useEffect(() => {
+    if (!hydrated || auth.role === 'viewer') return; // never overwrite the server copy before it has been read
+    if (!hasUnsavedChanges()) return;
+    const timer = setTimeout(saveToServer, 1200);
     return () => clearTimeout(timer);
-  }, [hydrated, inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, settings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, auth.role, inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, settings]);
 
   useEffect(() => {
     try {
@@ -310,20 +420,6 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
         localStorage.removeItem('pantrypal_cooked_logs');
         localStorage.removeItem('pantrypal_shopping_list');
       } catch (e) {}
-      fetch('/api/pantry-data', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          inventory: [],
-          recipes: [],
-          plannedMeals: [],
-          cookedLogs: [],
-          shoppingList: [],
-          purchaseLogs: [],
-          rewards: [],
-          settings,
-        }),
-      }).catch(() => {});
       showToast('All database items cleared');
     }
   };
@@ -732,9 +828,63 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
     showToast(`Updated tags for "${updated.name}"`);
   };
 
+  // Requests
+  const handleCreateRequest = async (request: Parameters<typeof createRequestApi>[0]) => {
+    setRequests(await createRequestApi(request));
+    showToast('Request sent');
+  };
+
+  const handleAnswerRequest = async (id: string, status: 'open' | 'done' | 'declined') => {
+    try {
+      setRequests(await answerRequestApi(id, status));
+    } catch (e: any) {
+      showToast(e.message);
+    }
+  };
+
+  const handleDeleteRequest = async (id: string) => {
+    try {
+      setRequests(await deleteRequestApi(id));
+    } catch (e: any) {
+      showToast(e.message);
+    }
+  };
+
+  const handleRequestToShopping = (req: HouseholdRequest) => {
+    handleAddShoppingItem({
+      name: req.text,
+      category: 'Other',
+      quantity: req.quantity,
+      unit: req.unit,
+      reason: `Requested by ${req.requestedBy}`,
+    });
+    handleAnswerRequest(req.id, 'done');
+  };
+
+  const handleRequestToPlanner = (req: HouseholdRequest) => {
+    handleAddPlannedMeals([{
+      date: req.date || todayISO(),
+      slot: req.slot || 'Dinner',
+      customName: req.text,
+      servings: 2,
+      ingredients: [],
+    }]);
+    handleAnswerRequest(req.id, 'done');
+  };
+
   const handleSelectForRecipeSearch = (ingredientName: string) => {
     setRecipeSearchQuery(ingredientName);
     setActiveTab('recipes');
+  };
+
+  // View-only members can look at everything but not change it (the server enforces this too)
+  const readOnly = auth.role === 'viewer';
+  const guard = <A extends unknown[], R>(fn: (...args: A) => R, whenBlocked?: R) => (...args: A): R => {
+    if (readOnly) {
+      showToast('View-only access: use Requests to ask for a change');
+      return whenBlocked as R;
+    }
+    return fn(...args);
   };
 
   return (
@@ -745,6 +895,13 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
 
       {/* Offline Mode Indicator */}
       <OfflineIndicator />
+
+      {/* View-only notice */}
+      {readOnly && (
+        <div className="bg-sky-50 border-b border-sky-200 text-sky-900 text-xs font-medium px-4 py-2 text-center">
+          You have view-only access. You can look at everything and use <button className="underline font-bold" onClick={() => setActiveTab('requests')}>Requests</button> to ask for changes.
+        </div>
+      )}
 
       {/* Toast Notification */}
       {toastMessage && (
@@ -761,14 +918,18 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
         readyToCookCount={readyToCookCount}
         shoppingCount={shoppingList.length}
         depletionWarningsCount={forecast.allDepletions.length}
-        onOpenReceiptScanner={() => setIsReceiptModalOpen(true)}
-        onOpenBarcodeScanner={() => setIsBarcodeModalOpen(true)}
+        onOpenReceiptScanner={guard(() => setIsReceiptModalOpen(true))}
+        onOpenBarcodeScanner={guard(() => setIsBarcodeModalOpen(true))}
         onOpenAddItem={() => {
           setActiveTab('inventory');
         }}
         onShowAndroidInstall={() => setIsAPKModalOpen(true)}
         onOpenUnraidModal={() => setIsUnraidModalOpen(true)}
-        onClearAllData={handleClearAllData}
+        requestsCount={openRequestsCount}
+        onOpenHousehold={() => setIsHouseholdOpen(true)}
+        theme={theme}
+        onChangeTheme={(t) => { setTheme(t); saveTheme(t); }}
+        onClearAllData={guard(handleClearAllData)}
         currency={settings.currency}
         onChangeCurrency={(currency) => {
           setSettings(prev => ({ ...prev, currency }));
@@ -779,7 +940,7 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
           setSettings(prev => ({ ...prev, measureMode: mode }));
           showToast(mode === 'mass' ? 'Measuring by weight (g, kg, oz, lb)' : 'Measuring by volume (ml, l, cup, fl oz...)');
         }}
-        onLogout={onLogout}
+        onLogout={auth.logout}
       />
 
       {/* Main Tab Content */}
@@ -787,12 +948,12 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
         {activeTab === 'inventory' && (
           <InventoryManager
             inventory={inventory}
-            onUpdateItem={handleUpdateItem}
-            onDeleteItem={handleDeleteItem}
-            onAddItem={handleAddItem}
+            onUpdateItem={guard(handleUpdateItem)}
+            onDeleteItem={guard(handleDeleteItem)}
+            onAddItem={guard(handleAddItem)}
             onSelectForRecipeSearch={handleSelectForRecipeSearch}
-            onOpenReceiptScanner={() => setIsReceiptModalOpen(true)}
-            onOpenBarcodeScanner={() => setIsBarcodeModalOpen(true)}
+            onOpenReceiptScanner={guard(() => setIsReceiptModalOpen(true))}
+            onOpenBarcodeScanner={guard(() => setIsBarcodeModalOpen(true))}
           />
         )}
 
@@ -800,13 +961,13 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
           <RecipeDatabase
             inventory={inventory}
             recipes={recipes}
-            onCookMeal={handleCookMeal}
-            onAddPlannedMeal={handleAddPlannedMealFromRecipe}
-            onAddNewRecipe={handleAddNewRecipe}
-            onDeleteRecipe={handleDeleteRecipe}
-            onDeleteTag={handleDeleteTag}
+            onCookMeal={guard(handleCookMeal)}
+            onAddPlannedMeal={guard(handleAddPlannedMealFromRecipe)}
+            onAddNewRecipe={guard(handleAddNewRecipe, false)}
+            onDeleteRecipe={guard(handleDeleteRecipe)}
+            onDeleteTag={guard(handleDeleteTag)}
             hiddenTags={settings.hiddenTags}
-            onUpdateRecipe={handleUpdateRecipe}
+            onUpdateRecipe={guard(handleUpdateRecipe)}
             initialSearchQuery={recipeSearchQuery}
           />
         )}
@@ -816,21 +977,34 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
             inventory={inventory}
             recipes={recipes}
             plannedMeals={plannedMeals}
-            onAddPlannedMeal={handleAddPlannedMeal}
-            onAddPlannedMeals={handleAddPlannedMeals}
-            onRemovePlannedMeal={handleRemovePlannedMeal}
-            onAutoGenerateShoppingList={handleAutoGenerateShoppingList}
-            onCookPlannedMeal={handleCookPlannedMeal}
+            onAddPlannedMeal={guard(handleAddPlannedMeal)}
+            onAddPlannedMeals={guard(handleAddPlannedMeals)}
+            onRemovePlannedMeal={guard(handleRemovePlannedMeal)}
+            onAutoGenerateShoppingList={guard(handleAutoGenerateShoppingList)}
+            onCookPlannedMeal={guard(handleCookPlannedMeal)}
           />
         )}
 
         {activeTab === 'shopping' && (
           <ShoppingListView
             shoppingList={shoppingList}
-            onToggleItem={handleToggleShoppingItem}
-            onDeleteItem={handleDeleteShoppingItem}
-            onAddItem={handleAddShoppingItem}
-            onPurchaseAndAddToInventory={handlePurchaseAndAddToInventory}
+            onToggleItem={guard(handleToggleShoppingItem)}
+            onDeleteItem={guard(handleDeleteShoppingItem)}
+            onAddItem={guard(handleAddShoppingItem)}
+            onPurchaseAndAddToInventory={guard(handlePurchaseAndAddToInventory)}
+          />
+        )}
+
+        {activeTab === 'requests' && (
+          <RequestsView
+            requests={requests}
+            currentUser={auth.user}
+            canAnswer={!readOnly}
+            onCreate={handleCreateRequest}
+            onAnswer={handleAnswerRequest}
+            onDelete={handleDeleteRequest}
+            onAddToShopping={handleRequestToShopping}
+            onAddToPlanner={handleRequestToPlanner}
           />
         )}
 
@@ -840,8 +1014,8 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
             inventory={inventory}
             purchaseLogs={purchaseLogs}
             rewards={rewards}
-            onAddRewards={handleAddRewards}
-            onDeleteRewards={handleDeleteRewards}
+            onAddRewards={guard(handleAddRewards)}
+            onDeleteRewards={guard(handleDeleteRewards)}
           />
         )}
       </main>
@@ -854,15 +1028,16 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
         readyToCookCount={readyToCookCount}
         shoppingCount={shoppingList.length}
         depletionWarningsCount={forecast.allDepletions.length}
-        onOpenReceiptScanner={() => setIsReceiptModalOpen(true)}
-        onOpenBarcodeScanner={() => setIsBarcodeModalOpen(true)}
+        requestsCount={openRequestsCount}
+        onOpenReceiptScanner={guard(() => setIsReceiptModalOpen(true))}
+        onOpenBarcodeScanner={guard(() => setIsBarcodeModalOpen(true))}
       />
 
       {/* Receipt Scanner Modal */}
       <ReceiptScannerModal
         isOpen={isReceiptModalOpen}
         onClose={() => setIsReceiptModalOpen(false)}
-        onAddItemsToInventory={handleBulkAddFromReceipt}
+        onAddItemsToInventory={guard(handleBulkAddFromReceipt)}
       />
 
       {/* Barcode Scanner Modal */}
@@ -880,6 +1055,8 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
         isOpen={isAPKModalOpen}
         onClose={() => setIsAPKModalOpen(false)}
       />
+
+      <HouseholdModal isOpen={isHouseholdOpen} onClose={() => setIsHouseholdOpen(false)} />
 
       {/* Unraid OS & Docker Hosting Guide Modal */}
       <UnraidModal

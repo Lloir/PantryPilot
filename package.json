@@ -4,12 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/generate-dark-theme.mjs",
     "dev": "tsx server.ts",
+    "prebuild": "node scripts/generate-dark-theme.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "start": "NODE_ENV=production tsx server.ts",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "gen:dark": "node scripts/generate-dark-theme.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

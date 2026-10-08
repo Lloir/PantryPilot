@@ -4,5 +4,5 @@ import { AuthGate } from './components/AuthGate.tsx';
 import './index.css';
 
 createRoot(document.getElementById('root')!).render(
-  <AuthGate>{(logout) => <App onLogout={logout} />}</AuthGate>
+  <AuthGate><App /></AuthGate>
 );

@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-10-08 (3)
+
+### Added
+- **Shared household.** Everyone who signs in shares one pantry, recipe book, meal planner and shopping list. Changes appear on other people's screens within a few seconds. If two people save at the same moment, both sets of changes are kept (merged by item) instead of the later save wiping the earlier one.
+- **More users, from the app.** Menu -> People & household: admins add people, choose their role, reset passwords and remove people. Everyone can change their own password. Roles: Admin (manages people), Member (edits everything), View only (looks and makes requests). Logins are still the plain `users.txt` file, now with an optional role on each line (`name:password [member]`).
+- **Requests.** New Requests tab: anyone, including view-only people, can ask for a shopping item, a meal on a day, a recipe idea or anything else. Admins and members can turn a request into a shopping list item or a planned meal in one tap, mark it done, or decline it.
+- **Dark mode and light theme.** Menu -> Theme: Light, Dark, or Match device (follows your phone or computer). It is remembered per device.
+
+### Changed
+- View-only people don't see edit buttons (add, scan, delete, cook, plan and so on), and the server refuses their changes and AI calls as well.
+- The pantry now saves with a version number. Clearing a list on one device now reaches the others (previously an empty list was ignored when loading from the server).
+- `npm run dev` and `npm run build` regenerate the dark theme styles (`scripts/generate-dark-theme.mjs`).
+
+### Fixed
+- The pantry value card on the Pantry tab showed a doubled currency symbol (`$£22.00`).
+
 ## 2026-10-08 (2)
 
 ### Added
