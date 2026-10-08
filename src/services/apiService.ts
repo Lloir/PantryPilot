@@ -1,11 +1,11 @@
 import { BarcodeLookupResult, InventoryItem, Recipe, ReceiptScanResult } from '../types';
 import { MeasureMode, canonicalUnit } from '../utils/units';
 
-export async function scanReceiptApi(imageBase64: string, mimeType: string = 'image/jpeg', measureMode: MeasureMode = 'mass'): Promise<ReceiptScanResult> {
+export async function scanReceiptApi(imageBase64: string, mimeType: string = 'image/jpeg', measureMode: MeasureMode = 'mass', currency: string = 'USD'): Promise<ReceiptScanResult> {
   const response = await fetch('/api/scan-receipt', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imageBase64, mimeType, measureMode }),
+    body: JSON.stringify({ imageBase64, mimeType, measureMode, currency }),
   });
 
   if (!response.ok) {

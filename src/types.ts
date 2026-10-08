@@ -161,8 +161,9 @@ export interface RewardsEntry {
 
 export interface AppSettings {
   measureMode: 'mass' | 'volume';
+  currency: string; // ISO code used to display money, e.g. USD, GBP, CAD
   hiddenTags: string[]; // suggested tags the user removed from the tag bar
   migratedV4?: boolean; // one-time unit standardization / duplicate merge / purchase history seed
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { measureMode: 'mass', hiddenTags: [] };
+export const DEFAULT_SETTINGS: AppSettings = { measureMode: 'mass', currency: 'USD', hiddenTags: [] };

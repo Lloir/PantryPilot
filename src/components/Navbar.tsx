@@ -15,9 +15,11 @@ import {
   LogOut,
   Scale,
   Menu,
+  Coins,
   X
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { CURRENCIES } from '../utils/currency';
 
 export type ActiveTab = 'inventory' | 'recipes' | 'planner' | 'shopping' | 'analytics';
 
@@ -34,6 +36,8 @@ interface NavbarProps {
   onShowAndroidInstall?: () => void;
   onOpenUnraidModal?: () => void;
   onClearAllData?: () => void;
+  currency: string;
+  onChangeCurrency: (code: string) => void;
   measureMode: 'mass' | 'volume';
   onChangeMeasureMode: (mode: 'mass' | 'volume') => void;
   onLogout?: () => void;
@@ -52,6 +56,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onShowAndroidInstall,
   onOpenUnraidModal,
   onClearAllData,
+  currency,
+  onChangeCurrency,
   measureMode,
   onChangeMeasureMode,
   onLogout,
@@ -116,6 +122,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                     >
                       <option value="mass">Weight</option>
                       <option value="volume">Volume</option>
+                    </select>
+                  </label>
+
+                  <label className="flex items-center justify-between px-3 py-2 text-sm text-stone-700">
+                    <span className="flex items-center space-x-2.5">
+                      <Coins className="w-4 h-4 text-stone-500 shrink-0" />
+                      <span>Currency</span>
+                    </span>
+                    <select
+                      value={currency}
+                      onChange={(e) => onChangeCurrency(e.target.value)}
+                      className="bg-stone-100 border border-stone-200 rounded-md px-1.5 py-1 text-xs font-semibold text-stone-700 max-w-[10rem]"
+                      title="Only changes how prices are shown; amounts are not converted."
+                    >
+                      {CURRENCIES.map(c => (
+                        <option key={c.code} value={c.code}>{c.code} · {c.name}</option>
+                      ))}
                     </select>
                   </label>
 

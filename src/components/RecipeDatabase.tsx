@@ -29,7 +29,7 @@ import { suggestRecipesApi } from '../services/apiService';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
 import { todayISO } from '../utils/inventoryMerge';
-import { useMeasureMode } from '../context/SettingsContext';
+import { useCurrency, useMeasureMode } from '../context/SettingsContext';
 
 interface RecipeDatabaseProps {
   inventory: InventoryItem[];
@@ -72,6 +72,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   onUpdateRecipe,
   initialSearchQuery = '',
 }) => {
+  const { fmt } = useCurrency();
   const measureMode = useMeasureMode();
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [stockAvailabilityFilter, setStockAvailabilityFilter] = useState<'All' | 'canCookNow' | 'missingOne'>('canCookNow');
@@ -765,11 +766,11 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                   <div className="mt-3.5 grid grid-cols-3 gap-2 py-2 border-y border-stone-100 text-xs">
                     <div>
                       <span className="text-[10px] text-stone-400 uppercase font-semibold block">Cost/Serving</span>
-                      <span className="font-bold text-emerald-700">${breakdown.costPerServing.toFixed(2)}</span>
+                      <span className="font-bold text-emerald-700">{fmt(breakdown.costPerServing)}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-stone-400 uppercase font-semibold block">Total Cost</span>
-                      <span className="font-bold text-stone-800">${breakdown.totalCost.toFixed(2)}</span>
+                      <span className="font-bold text-stone-800">{fmt(breakdown.totalCost)}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-stone-400 uppercase font-semibold block">Time</span>
@@ -987,14 +988,14 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                   <div>
                     <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">Cost Per Serving</span>
                     <span className="text-base font-extrabold text-emerald-700 block mt-1">
-                      ${detailBreakdown.costPerServing.toFixed(2)}
+                      {fmt(detailBreakdown.costPerServing)}
                     </span>
                   </div>
 
                   <div>
                     <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">Total Recipe Cost</span>
                     <span className="text-base font-extrabold text-stone-900 block mt-1">
-                      ${detailBreakdown.totalCost.toFixed(2)}
+                      {fmt(detailBreakdown.totalCost)}
                     </span>
                   </div>
                 </div>
@@ -1045,7 +1046,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                               )}
                             </td>
                             <td className="py-2 px-3 text-right font-bold text-stone-900">
-                              ${item.cost.toFixed(2)}
+                              {fmt(item.cost)}
                             </td>
                           </tr>
                         ))}

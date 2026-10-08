@@ -14,6 +14,7 @@ import {
   Camera,
   RefreshCw
 } from 'lucide-react';
+import { useCurrency } from '../context/SettingsContext';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
 import { normalizeUnit } from '../utils/units';
@@ -61,6 +62,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   onClose,
   onAddItemToInventory,
 }) => {
+  const { fmt, symbol } = useCurrency();
   const [barcodeInput, setBarcodeInput] = useState('');
   const [isScanningCamera, setIsScanningCamera] = useState(false);
   const [isLookingUp, setIsLookingUp] = useState(false);
@@ -345,7 +347,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               {lookupResult && (
                 <span className="text-[11px] text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full font-semibold flex items-center space-x-1">
                   <Sparkles className="w-3 h-3" />
-                  <span>Database Match: ${lookupResult.averagePrice.toFixed(2)} Avg</span>
+                  <span>Database Match: {fmt(lookupResult.averagePrice)} Avg</span>
                 </span>
               )}
             </div>
@@ -410,7 +412,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1">Total Price ($)</label>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">Total Price ({symbol})</label>
                 <NumberField
                   value={price}
                   onChange={(v) => setPrice(v ?? 0)}

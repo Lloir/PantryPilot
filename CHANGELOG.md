@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-08 (2)
+
+### Added
+- **Currency choice.** Pick your currency from the menu (USD, GBP, CAD, EUR, AUD, NZD, CHF, JPY and more). Every price in the app is shown in it, form labels use its symbol, and receipt scanning is told which currency you use. This only changes how amounts are displayed; existing amounts are not converted.
+
+### Changed
+- Updated the Docker publish workflow to the Node 24 versions of its GitHub Actions (checkout v7, setup-buildx v4, login v4, metadata v6, build-push v7), which clears the Node 20 deprecation warning.
+
 ## 2026-10-08
 
 ### Added

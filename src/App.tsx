@@ -20,6 +20,7 @@ import {
 import { SettingsProvider } from './context/SettingsContext';
 import { mergeIntoInventory, normalizeInventory, syncInventoryBatches, estimateCostFromPantry, todayISO, addDaysISO } from './utils/inventoryMerge';
 import { canonicalUnit } from './utils/units';
+import { formatMoney } from './utils/currency';
 import { 
   INITIAL_INVENTORY, 
   INITIAL_RECIPES, 
@@ -539,7 +540,7 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
     };
 
     setCookedLogs(prev => [newLog, ...prev]);
-    showToast(`Cooked "${recipe.name}"! Deducted ingredients from stock. Total cost: $${costBreakdown.totalCost.toFixed(2)}`);
+    showToast(`Cooked "${recipe.name}"! Deducted ingredients from stock. Total cost: ${formatMoney(costBreakdown.totalCost, settings.currency)}`);
   };
 
   // Cook a planned meal directly from the planner
@@ -737,7 +738,7 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
   };
 
   return (
-    <SettingsProvider measureMode={settings.measureMode}>
+    <SettingsProvider measureMode={settings.measureMode} currency={settings.currency}>
     <div className="min-h-screen bg-stone-100/60 text-stone-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white pb-24 md:pb-12">
       {/* Android & PWA Installation Banner */}
       <AndroidInstallBanner onOpenAPKModal={() => setIsAPKModalOpen(true)} />
@@ -768,6 +769,11 @@ export default function App({ onLogout }: { onLogout?: () => void }) {
         onShowAndroidInstall={() => setIsAPKModalOpen(true)}
         onOpenUnraidModal={() => setIsUnraidModalOpen(true)}
         onClearAllData={handleClearAllData}
+        currency={settings.currency}
+        onChangeCurrency={(currency) => {
+          setSettings(prev => ({ ...prev, currency }));
+          showToast(`Showing prices in ${currency}`);
+        }}
         measureMode={settings.measureMode}
         onChangeMeasureMode={(mode) => {
           setSettings(prev => ({ ...prev, measureMode: mode }));

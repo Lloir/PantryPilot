@@ -16,6 +16,7 @@ import {
   Trash2,
   History
 } from 'lucide-react';
+import { useCurrency } from '../context/SettingsContext';
 import { CookedMealLog, InventoryItem, PurchaseLog, RewardsEntry } from '../types';
 import { todayISO } from '../utils/inventoryMerge';
 
@@ -47,6 +48,7 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
   onAddRewards,
   onDeleteRewards,
 }) => {
+  const { fmt } = useCurrency();
   const [historyRange, setHistoryRange] = useState<HistoryRange>(6);
   const [rewardPoints, setRewardPoints] = useState('');
   const [rewardStore, setRewardStore] = useState('');
@@ -172,7 +174,7 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-2xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Avg Cost / Serving</span>
           <div className="mt-2 flex items-baseline space-x-1">
-            <span className="text-2xl font-black text-emerald-700">${analytics.avgCostPerServing.toFixed(2)}</span>
+            <span className="text-2xl font-black text-emerald-700">{fmt(analytics.avgCostPerServing)}</span>
             <span className="text-xs text-stone-500">/ portion</span>
           </div>
           <span className="text-[11px] text-stone-500 mt-1 block">
@@ -183,7 +185,7 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-2xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Total Spent MTD</span>
           <div className="mt-2 flex items-baseline space-x-1">
-            <span className="text-2xl font-black text-emerald-600">${spentMtd.total.toFixed(2)}</span>
+            <span className="text-2xl font-black text-emerald-600">{fmt(spentMtd.total)}</span>
           </div>
           <span className="text-[11px] text-stone-500 mt-1 block">
             {spentMtd.count} purchase{spentMtd.count === 1 ? '' : 's'} in {monthLabel(spentMtd.month)}
@@ -193,7 +195,7 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-2xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Current Pantry Value</span>
           <div className="mt-2 flex items-baseline space-x-1">
-            <span className="text-2xl font-black text-stone-900">${analytics.pantryValue.toFixed(2)}</span>
+            <span className="text-2xl font-black text-stone-900">{fmt(analytics.pantryValue)}</span>
           </div>
           <span className="text-[11px] text-stone-500 mt-1 block">
             {inventory.length} ingredients currently in stock
@@ -203,7 +205,7 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-2xs">
           <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 block">Cooked Food Value</span>
           <div className="mt-2 flex items-baseline space-x-1">
-            <span className="text-2xl font-black text-stone-900">${analytics.totalCookingCost.toFixed(2)}</span>
+            <span className="text-2xl font-black text-stone-900">{fmt(analytics.totalCookingCost)}</span>
           </div>
           <span className="text-[11px] text-stone-500 mt-1 block">
             {cookedLogs.length} home meals tracked
@@ -220,9 +222,9 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
           {analytics.categoryBreakdown.map(cat => (
             <div key={cat.category} className="p-3 bg-stone-50 rounded-xl border border-stone-100">
               <span className="text-xs font-semibold text-stone-700 block truncate">{cat.category}</span>
-              <span className="text-base font-bold text-emerald-800 mt-1 block">${cat.total.toFixed(2)}</span>
+              <span className="text-base font-bold text-emerald-800 mt-1 block">{fmt(cat.total)}</span>
               <span className="text-[10px] text-stone-500 block">
-                avg ${(history.categoryAvg[cat.category] || 0).toFixed(2)}/mo bought
+                avg {fmt((history.categoryAvg[cat.category] || 0))}/mo bought
               </span>
               <div className="w-full bg-stone-200 rounded-full h-1 mt-2">
                 <div
@@ -265,17 +267,17 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="p-3 bg-stone-50 rounded-xl border border-stone-100">
             <span className="text-[10px] font-bold uppercase text-stone-400 block">Current carrying cost</span>
-            <span className="text-xl font-black text-stone-900">${analytics.pantryValue.toFixed(2)}</span>
+            <span className="text-xl font-black text-stone-900">{fmt(analytics.pantryValue)}</span>
           </div>
           <div className="p-3 bg-stone-50 rounded-xl border border-stone-100">
             <span className="text-[10px] font-bold uppercase text-stone-400 block">Average per month</span>
-            <span className="text-xl font-black text-emerald-700">${history.avgMonthly.toFixed(2)}</span>
+            <span className="text-xl font-black text-emerald-700">{fmt(history.avgMonthly)}</span>
           </div>
           <div className="p-3 bg-stone-50 rounded-xl border border-stone-100">
             <span className="text-[10px] font-bold uppercase text-stone-400 block">
               Spent over {history.monthsCount} month{history.monthsCount === 1 ? '' : 's'}
             </span>
-            <span className="text-xl font-black text-stone-900">${history.total.toFixed(2)}</span>
+            <span className="text-xl font-black text-stone-900">{fmt(history.total)}</span>
           </div>
         </div>
 
@@ -294,7 +296,7 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
                     style={{ width: `${(row.total / history.max) * 100}%` }}
                   />
                 </div>
-                <span className="w-20 shrink-0 text-right font-semibold text-stone-800">${row.total.toFixed(2)}</span>
+                <span className="w-20 shrink-0 text-right font-semibold text-stone-800">{fmt(row.total)}</span>
               </div>
             ))}
           </div>
@@ -451,11 +453,11 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
                     <div className="flex items-center space-x-4">
                       <div className="text-right">
                         <span className="text-[10px] uppercase font-bold text-stone-400 block">Total Cost</span>
-                        <span className="text-sm font-bold text-stone-900">${log.totalMealCost.toFixed(2)}</span>
+                        <span className="text-sm font-bold text-stone-900">{fmt(log.totalMealCost)}</span>
                       </div>
                       <div className="text-right">
                         <span className="text-[10px] uppercase font-bold text-stone-400 block">Per Portion</span>
-                        <span className="text-sm font-extrabold text-emerald-700">${log.costPerServing.toFixed(2)}</span>
+                        <span className="text-sm font-extrabold text-emerald-700">{fmt(log.costPerServing)}</span>
                       </div>
                     </div>
                   </div>
@@ -474,7 +476,7 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
                           >
                             <span>{item.itemName}</span>
                             <span className="font-semibold text-stone-900">
-                              ({item.quantityDeducted} {item.unit} • ${item.cost.toFixed(2)})
+                              ({item.quantityDeducted} {item.unit} • {fmt(item.cost)})
                             </span>
                           </span>
                         ))}

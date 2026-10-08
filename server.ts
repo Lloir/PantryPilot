@@ -538,7 +538,8 @@ Return a JSON object with:
 // API: Scan Receipt (Multimodal Gemini 3.8 Flash)
 app.post('/api/scan-receipt', async (req: Request, res: Response) => {
   try {
-    const { imageBase64, mimeType = 'image/jpeg', measureMode } = req.body;
+    const { imageBase64, mimeType = 'image/jpeg', measureMode, currency } = req.body;
+    const currencyCode = typeof currency === 'string' && /^[A-Z]{3}$/.test(currency) ? currency : 'USD';
 
     if (!imageBase64) {
       res.status(400).json({ error: 'Missing imageBase64 payload' });
@@ -571,7 +572,7 @@ Extract all details from this receipt:
    - category: strictly one of ["Produce", "Dairy & Eggs", "Meat & Seafood", "Pantry & Grains", "Canned & Jarred", "Frozen", "Bakery", "Beverages", "Spices & Condiments", "Snacks", "Other"]
    - quantity: number (e.g. 1, 2, 2.5)
    - unit: ${unitRule(measureMode)}
-   - unitPrice: unit price number
+   - unitPrice: unit price number, exactly as printed (the user's currency is ${currencyCode}; do not convert)
    - totalPrice: total price number for this item line
    - estimatedShelfLifeDays: typical days it stays fresh (e.g. spinach: 5, chicken: 4, milk: 10, canned beans: 700)
    - barcode: optional UPC if visible

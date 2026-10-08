@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   List
 } from 'lucide-react';
+import { useCurrency } from '../context/SettingsContext';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
 import { ItemNameInput } from './ItemNameInput';
@@ -60,6 +61,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
   onOpenReceiptScanner,
   onOpenBarcodeScanner,
 }) => {
+  const { fmt, symbol } = useCurrency();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedLocation, setSelectedLocation] = useState<string>('All');
@@ -223,7 +225,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
             <DollarSign className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="mt-2 flex items-baseline space-x-2">
-            <span className="text-2xl font-bold text-stone-900">${metrics.totalValue}</span>
+            <span className="text-2xl font-bold text-stone-900">${fmt(Number(metrics.totalValue))}</span>
             <span className="text-xs text-emerald-600 font-semibold">in stock</span>
           </div>
         </div>
@@ -535,10 +537,10 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                   <div>
                     <span className="text-[10px] uppercase font-semibold text-stone-400 block">Total Cost</span>
                     <span className="text-sm font-bold text-emerald-800">
-                      ${(item.totalCost || item.quantity * item.unitPrice).toFixed(2)}
+                      {fmt((item.totalCost || item.quantity * item.unitPrice))}
                     </span>
                     <span className="text-[10px] text-stone-500 ml-1">
-                      (${item.unitPrice.toFixed(2)}/{item.unit})
+                      ({fmt(item.unitPrice)}/{item.unit})
                     </span>
                   </div>
 
@@ -608,9 +610,9 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                       <td className="py-2.5 px-4 font-semibold text-stone-800">
                         {item.quantity} {item.unit}
                       </td>
-                      <td className="py-2.5 px-4 text-stone-600">${item.unitPrice.toFixed(2)}</td>
+                      <td className="py-2.5 px-4 text-stone-600">{fmt(item.unitPrice)}</td>
                       <td className="py-2.5 px-4 font-bold text-emerald-800">
-                        ${(item.totalCost || item.quantity * item.unitPrice).toFixed(2)}
+                        {fmt((item.totalCost || item.quantity * item.unitPrice))}
                       </td>
                       <td className="py-2.5 px-4">
                         <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
@@ -717,7 +719,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-stone-700 mb-1">Total Cost ($, optional)</label>
+                  <label className="block font-semibold text-stone-700 mb-1">Total Cost ({symbol}, optional)</label>
                   <NumberField
                     allowEmpty
                     placeholder="Optional"
@@ -841,7 +843,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-stone-700 mb-1">Unit Price ($)</label>
+                  <label className="block font-semibold text-stone-700 mb-1">Unit Price ({symbol})</label>
                   <NumberField
                     value={editingItem.unitPrice}
                     onChange={(v) => {

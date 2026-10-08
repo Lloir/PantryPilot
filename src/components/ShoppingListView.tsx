@@ -11,6 +11,7 @@ import {
   Calendar,
   AlertCircle
 } from 'lucide-react';
+import { useCurrency } from '../context/SettingsContext';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
 import confetti from 'canvas-confetti';
@@ -45,6 +46,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
   onAddItem,
   onPurchaseAndAddToInventory,
 }) => {
+  const { fmt } = useCurrency();
   const [newItemName, setNewItemName] = useState('');
   const [newItemCategory, setNewItemCategory] = useState<ItemCategory>('Produce');
   const [newItemQty, setNewItemQty] = useState<number | undefined>(undefined);
@@ -121,7 +123,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
         <div className="flex items-center space-x-4">
           <div className="text-right">
             <span className="text-[10px] uppercase font-bold text-stone-400 block">Est. Grocery Cost</span>
-            <span className="text-xl font-black text-emerald-700">${totalEstimatedCost.toFixed(2)}</span>
+            <span className="text-xl font-black text-emerald-700">{fmt(totalEstimatedCost)}</span>
           </div>
 
           <button
@@ -203,7 +205,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
                   {categoryName} ({items.length})
                 </span>
                 <span className="text-xs font-semibold text-emerald-800">
-                  ${items.reduce((sum, it) => sum + (it.estimatedCost || 0), 0).toFixed(2)}
+                  {fmt(items.reduce((sum, it) => sum + (it.estimatedCost || 0), 0))}
                 </span>
               </div>
 
@@ -239,7 +241,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
                         {item.quantity ? `${item.quantity} ${item.unit || ''}` : ''}
                       </span>
                       <span className="text-xs font-bold text-emerald-700 w-16 text-right">
-                        {item.estimatedCost !== undefined ? `$${item.estimatedCost.toFixed(2)}` : <span className="text-stone-300">no price</span>}
+                        {item.estimatedCost !== undefined ? `${fmt(item.estimatedCost)}` : <span className="text-stone-300">no price</span>}
                       </span>
                       <button
                         onClick={() => onDeleteItem(item.id)}
