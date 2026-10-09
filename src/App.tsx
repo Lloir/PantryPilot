@@ -44,8 +44,8 @@ import { ShoppingListView } from './components/ShoppingListView';
 import { CostAnalytics } from './components/CostAnalytics';
 import { ReceiptScannerModal } from './components/ReceiptScannerModal';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
-import { AndroidInstallBanner } from './components/AndroidInstallBanner';
-import { AndroidAPKModal } from './components/AndroidAPKModal';
+import { InstallBanner } from './components/InstallBanner';
+import { InstallAppModal } from './components/InstallAppModal';
 import { UnraidModal } from './components/UnraidModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -890,8 +890,8 @@ export default function App() {
   return (
     <SettingsProvider measureMode={settings.measureMode} currency={settings.currency}>
     <div className="min-h-screen bg-stone-100/60 text-stone-900 flex flex-col font-sans selection:bg-emerald-500 selection:text-white pb-24 md:pb-12">
-      {/* Android & PWA Installation Banner */}
-      <AndroidInstallBanner onOpenAPKModal={() => setIsAPKModalOpen(true)} />
+      {/* Install-as-app banner */}
+      <InstallBanner onOpenGuide={() => setIsAPKModalOpen(true)} />
 
       {/* Offline Mode Indicator */}
       <OfflineIndicator />
@@ -923,7 +923,7 @@ export default function App() {
         onOpenAddItem={() => {
           setActiveTab('inventory');
         }}
-        onShowAndroidInstall={() => setIsAPKModalOpen(true)}
+        onShowInstall={() => setIsAPKModalOpen(true)}
         onOpenUnraidModal={() => setIsUnraidModalOpen(true)}
         requestsCount={openRequestsCount}
         onOpenHousehold={() => setIsHouseholdOpen(true)}
@@ -1049,8 +1049,8 @@ export default function App() {
         }}
       />
 
-      {/* Android APK Download & Hub Modal */}
-      <AndroidAPKModal
+      {/* Install-as-app guide */}
+      <InstallAppModal
         isOpen={isAPKModalOpen}
         onClose={() => setIsAPKModalOpen(false)}
       />

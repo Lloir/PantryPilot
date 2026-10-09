@@ -679,21 +679,6 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
-// Android Digital Asset Links (Required for WebAPK / TWA Android verification)
-app.get('/.well-known/assetlinks.json', (_req: Request, res: Response) => {
-  res.setHeader('Content-Type', 'application/json');
-  const assetlinksPath = path.resolve(__dirname, 'public', '.well-known', 'assetlinks.json');
-  res.sendFile(assetlinksPath);
-});
-
-// Android TWA Manifest (Bubblewrap CLI configuration)
-app.get('/twa-manifest.json', (_req: Request, res: Response) => {
-  res.setHeader('Content-Type', 'application/json');
-  const twaPath = path.resolve(__dirname, 'public', 'twa-manifest.json');
-  res.sendFile(twaPath);
-});
-
-
 // --- Barcode lookup ---------------------------------------------------------
 // Order: what your household saved -> built-in list -> Open Food Facts (free, worldwide)
 //        -> barcodelookup.com (if BARCODE_LOOKUP_API_KEY is set) -> UPCitemdb (free, limited)

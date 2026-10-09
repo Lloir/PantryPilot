@@ -17,7 +17,6 @@ html.dark body { background-color: #0c0a09; color: oklch(92.3% 0.003 48.717); }
 .dark .bg-emerald-200 { background-color: oklch(43.2% 0.095 166.913); }
 .dark .bg-emerald-50 { background-color: oklch(26.2% 0.051 172.552); }
 .dark .bg-emerald-50\/40 { background-color: color-mix(in oklab, oklch(26.2% 0.051 172.552) 40%, transparent); }
-.dark .bg-emerald-50\/70 { background-color: color-mix(in oklab, oklch(26.2% 0.051 172.552) 70%, transparent); }
 .dark .bg-purple-100 { background-color: oklch(38.1% 0.176 304.987); }
 .dark .bg-red-100 { background-color: oklch(39.6% 0.141 25.723); }
 .dark .bg-red-50 { background-color: oklch(25.8% 0.092 26.042); }
@@ -40,8 +39,6 @@ html.dark body { background-color: #0c0a09; color: oklch(92.3% 0.003 48.717); }
 .dark .border-amber-300 { border-color: oklch(55.5% 0.163 48.998); }
 .dark .border-emerald-200 { border-color: oklch(43.2% 0.095 166.913); }
 .dark .border-emerald-300 { border-color: oklch(50.8% 0.118 165.612); }
-.dark .border-emerald-300\/30 { border-color: color-mix(in oklab, oklch(50.8% 0.118 165.612) 30%, transparent); }
-.dark .border-emerald-300\/40 { border-color: color-mix(in oklab, oklch(50.8% 0.118 165.612) 40%, transparent); }
 .dark .border-red-200 { border-color: oklch(44.4% 0.177 26.899); }
 .dark .border-red-300 { border-color: oklch(50.5% 0.213 27.518); }
 .dark .border-sky-200 { border-color: oklch(44.3% 0.11 240.79); }
