@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Inbox, Send, ShoppingCart, CalendarPlus, Check, X, RotateCcw, Trash2, MessageSquare, UtensilsCrossed } from 'lucide-react';
-import { HouseholdRequest, RequestType } from '../types';
+import { ActivityEntry, HouseholdRequest, RequestType } from '../types';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
 import { todayISO } from '../utils/inventoryMerge';
@@ -14,6 +14,8 @@ interface RequestsViewProps {
   onDelete: (id: string) => void;
   onAddToShopping: (request: HouseholdRequest) => void;
   onAddToPlanner: (request: HouseholdRequest) => void;
+  onComment: (id: string, text: string) => Promise<void>;
+  activity: ActivityEntry[];
 }
 
 const TYPE_LABEL: Record<RequestType, string> = {
@@ -44,7 +46,21 @@ export const RequestsView: React.FC<RequestsViewProps> = ({
   onDelete,
   onAddToShopping,
   onAddToPlanner,
+  onComment,
+  activity,
 }) => {
+  const [openThread, setOpenThread] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const sendComment = async (id: string) => {
+    const text = draft.trim();
+    if (!text) return;
+    try {
+      await onComment(id, text);
+      setDraft('');
+    } catch (err: any) {
+      setError(err.message || 'Could not add the comment');
+    }
+  };
   const [type, setType] = useState<RequestType>('shopping');
   const [text, setText] = useState('');
   const [quantity, setQuantity] = useState<number | undefined>(undefined);
@@ -91,7 +107,8 @@ export const RequestsView: React.FC<RequestsViewProps> = ({
   const renderRow = (r: HouseholdRequest) => {
     const mine = r.requestedBy === currentUser;
     return (
-      <li key={r.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <li key={r.id} className="p-3.5 space-y-2">
+       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center space-x-2 text-sm font-bold text-stone-900">
             <span className="text-stone-400">{TYPE_ICON[r.type]}</span>
@@ -142,7 +159,38 @@ export const RequestsView: React.FC<RequestsViewProps> = ({
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           )}
+          <button
+            onClick={() => { setOpenThread(openThread === r.id ? null : r.id); setDraft(''); }}
+            className="px-2 py-1.5 text-stone-500 hover:text-stone-800 rounded-lg text-xs font-semibold flex items-center space-x-1"
+            title="Comments"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>{r.comments?.length ? r.comments.length : 'Comment'}</span>
+          </button>
         </div>
+       </div>
+       {(r.comments?.length ?? 0) > 0 && (
+         <ul className="ml-6 space-y-1">
+           {r.comments!.map(c => (
+             <li key={c.id} className="text-[11px] text-stone-600 bg-stone-50 border border-stone-100 rounded-lg px-2.5 py-1.5">
+               <strong className="text-stone-800">{c.by}</strong>: {c.text} <span className="text-stone-400">· {when(c.at)}</span>
+             </li>
+           ))}
+         </ul>
+       )}
+       {openThread === r.id && (
+         <form className="ml-6 flex items-center space-x-2" onSubmit={(e) => { e.preventDefault(); sendComment(r.id); }}>
+           <input
+             autoFocus
+             value={draft}
+             onChange={(e) => setDraft(e.target.value)}
+             maxLength={300}
+             placeholder="Add a comment..."
+             className="flex-1 px-3 py-1.5 border border-stone-300 rounded-lg text-xs"
+           />
+           <button type="submit" disabled={!draft.trim()} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold">Send</button>
+         </form>
+       )}
       </li>
     );
   };
@@ -214,6 +262,22 @@ export const RequestsView: React.FC<RequestsViewProps> = ({
           <ul className="divide-y divide-stone-100">{open.map(renderRow)}</ul>
         )}
       </div>
+
+      {activity.length > 0 && (
+        <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-2xs">
+          <div className="px-5 py-3 border-b border-stone-200 bg-stone-50">
+            <h3 className="text-sm font-bold text-stone-900">Household activity</h3>
+          </div>
+          <ul className="divide-y divide-stone-100">
+            {activity.slice(0, 20).map(a => (
+              <li key={a.id} className="px-5 py-2 text-xs text-stone-600 flex items-baseline justify-between gap-3">
+                <span><strong className="text-stone-800">{a.user}</strong> {a.text}</span>
+                <span className="text-stone-400 shrink-0">{when(a.at)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {closed.length > 0 && (
         <div className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-2xs">

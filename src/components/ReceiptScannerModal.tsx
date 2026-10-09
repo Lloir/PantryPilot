@@ -14,7 +14,11 @@ import {
   AlertCircle,
   Clock
 } from 'lucide-react';
-import { ItemCategory, ReceiptParsedItem, ReceiptScanResult, StorageLocation } from '../types';
+import { ItemCategory, ReceiptParsedItem, ReceiptRecord, ReceiptScanResult, StorageLocation } from '../types';
+
+/** store|date|total: two receipts with the same three are almost certainly the same receipt */
+export const receiptKey = (store: string, date: string, total: number) =>
+  `${store.toLowerCase().trim()}|${date}|${total.toFixed(2)}`;
 import { scanReceiptApi } from '../services/apiService';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
@@ -26,6 +30,7 @@ import { normalizeUnit, unitSupportedInMode } from '../utils/units';
 interface ReceiptScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
+  receiptLog: ReceiptRecord[];
   onAddItemsToInventory: (items: {
     name: string;
     category: ItemCategory;
@@ -37,7 +42,7 @@ interface ReceiptScannerModalProps {
     expirationDate: string;
     location: StorageLocation;
     notes?: string;
-  }[], meta?: { store?: string; purchaseDate?: string; rewardsPoints?: number }) => void;
+  }[], meta?: { store?: string; purchaseDate?: string; rewardsPoints?: number; receiptKey?: string; total?: number }) => void;
 }
 
 const CATEGORIES: ItemCategory[] = [
@@ -57,6 +62,7 @@ const CATEGORIES: ItemCategory[] = [
 export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
   isOpen,
   onClose,
+  receiptLog,
   onAddItemsToInventory,
 }) => {
   const { fmt, symbol, currency } = useCurrency();
@@ -71,6 +77,10 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
     } catch (e) {}
     return null;
   });
+  // Same store, date and total as one already added?
+  const duplicate = scanResult && scanResult.total > 0
+    ? receiptLog.find(r => r.key === receiptKey(scanResult.storeName || '', scanResult.purchaseDate || '', scanResult.total))
+    : undefined;
   React.useEffect(() => {
     try {
       if (scanResult) localStorage.setItem('pantrypal_receipt_draft', JSON.stringify(scanResult));
@@ -253,6 +263,8 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
       return;
     }
 
+    if (duplicate && !window.confirm(`This looks like a receipt you already added (${duplicate.store || 'same store'}, ${duplicate.date}, total ${duplicate.total.toFixed(2)}). Add it again?`)) return;
+
     const itemsToAdd = selectedItems.map(item => {
       // Calculate expiration date: purchaseDate + estimatedShelfLifeDays
       const pDate = new Date(`${purchaseDate}T00:00:00`);
@@ -288,6 +300,8 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
       store: scanResult.storeName,
       purchaseDate,
       rewardsPoints: scanResult.rewardsPoints,
+      receiptKey: scanResult.total > 0 ? receiptKey(scanResult.storeName || '', purchaseDate, scanResult.total) : undefined,
+      total: scanResult.total,
     });
     setScanResult(null);
     setImagePreview(null);
@@ -441,6 +455,13 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
           {/* Scanned Results Table & Editor */}
           {scanResult && (
             <div className="space-y-5 animate-fadeIn">
+              {duplicate && (
+                <div role="alert" className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start space-x-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span><strong>This looks like a receipt you already added</strong> ({duplicate.store || 'same store'}, {duplicate.date}, {duplicate.itemCount} items). Adding it again would double the stock and the spending, so you will be asked to confirm.</span>
+                </div>
+              )}
+
               {/* Receipt Meta Summary Header */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-stone-50 p-4 rounded-xl border border-stone-200">
                 <div>

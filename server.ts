@@ -1067,8 +1067,15 @@ function parsePackSize(raw: unknown): { quantity: number; unit: string } {
 
 const lookupHeaders = { 'User-Agent': 'PantryPal/1.0 (self-hosted pantry app)' };
 
+// Open Food Facts allergen tags -> the keys the app uses
+const OFF_ALLERGENS: Record<string, string> = {
+  gluten: 'gluten', milk: 'milk', eggs: 'eggs', peanuts: 'peanuts', nuts: 'nuts', soybeans: 'soy',
+  fish: 'fish', crustaceans: 'shellfish', molluscs: 'shellfish', 'sesame-seeds': 'sesame',
+};
+
 function toResult(code: string, base: {
   name: string; brand?: string; categoryText: string; pack?: unknown; price?: number; source: string;
+  nutriments?: any; nutriscore?: string; allergenTags?: string[];
 }) {
   const g = guessCategory(base.categoryText || base.name);
   const { quantity, unit } = parsePackSize(base.pack);
@@ -1084,7 +1091,29 @@ function toResult(code: string, base: {
     storageLocation: g.location,
     foundInDatabase: true,
     source: base.source,
+    ...(extras(base, unit)),
   };
+}
+
+// Calories and allergens, when the database has them
+function extras(base: { nutriments?: any; nutriscore?: string; allergenTags?: string[] }, unit: string) {
+  const out: Record<string, unknown> = {};
+  const n = base.nutriments;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Number(v.toFixed(1)) : undefined);
+  if (n && num(n['energy-kcal_100g']) !== undefined) {
+    out.nutrition = {
+      per: ['ml', 'l', 'fl oz'].includes(unit) ? '100ml' : '100g',
+      kcal: num(n['energy-kcal_100g']),
+      protein: num(n['proteins_100g']),
+      carbs: num(n['carbohydrates_100g']),
+      fat: num(n['fat_100g']),
+      nutriscore: /^[a-e]$/.test(base.nutriscore ?? '') ? base.nutriscore : undefined,
+    };
+  }
+  if (base.allergenTags?.length) {
+    out.allergens = Array.from(new Set(base.allergenTags.map(t => OFF_ALLERGENS[t.replace(/^[a-z]{2}:/, '')]).filter(Boolean)));
+  }
+  return out;
 }
 
 async function lookupOpenFoodFacts(code: string) {
@@ -1094,7 +1123,7 @@ async function lookupOpenFoodFacts(code: string) {
     .filter(Boolean);
   for (const v of variants) {
     const r = await fetch(
-      `https://world.openfoodfacts.org/api/v2/product/${v}.json?fields=product_name,generic_name,brands,categories_tags,quantity`,
+      `https://world.openfoodfacts.org/api/v2/product/${v}.json?fields=product_name,generic_name,brands,categories_tags,quantity,nutriments,nutriscore_grade,allergens_tags`,
       { headers: lookupHeaders, signal: AbortSignal.timeout(6000) }
     );
     if (!r.ok) continue;
@@ -1104,7 +1133,7 @@ async function lookupOpenFoodFacts(code: string) {
     if (data?.status === 1 && name) {
       const brand = String(p.brands || '').split(',')[0].trim();
       const tags = Array.isArray(p.categories_tags) ? p.categories_tags.map((t: string) => t.replace(/^[a-z]{2}:/, '').replace(/-/g, ' ')).join(' ') : '';
-      return toResult(code, { name, brand, categoryText: `${tags} ${name}`, pack: p.quantity, source: 'open_food_facts' });
+      return toResult(code, { name, brand, categoryText: `${tags} ${name}`, pack: p.quantity, source: 'open_food_facts', nutriments: p.nutriments, nutriscore: p.nutriscore_grade, allergenTags: p.allergens_tags });
     }
   }
   return null;
@@ -1153,6 +1182,8 @@ app.post('/api/barcode-save', (req: Request, res: Response) => {
     storageLocation: String(b.storageLocation || 'Pantry'),
     foundInDatabase: true,
     source: 'saved',
+    nutrition: b.nutrition && typeof b.nutrition === 'object' ? b.nutrition : undefined,
+    allergens: Array.isArray(b.allergens) ? b.allergens.map(String).slice(0, 12) : undefined,
   };
   try {
     writeFileAtomic(BARCODE_CACHE_FILE, JSON.stringify(cache, null, 2));

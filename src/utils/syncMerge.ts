@@ -9,10 +9,17 @@ export interface SyncedState {
   shoppingList: any[];
   purchaseLogs: any[];
   rewards: any[];
+  wasteLogs: any[];
+  priceHistory: any[];
+  receiptLog: any[];
+  activity: any[];
   settings: Record<string, any>;
 }
 
-const LIST_KEYS = ['inventory', 'recipes', 'plannedMeals', 'cookedLogs', 'shoppingList', 'purchaseLogs', 'rewards'] as const;
+const LIST_KEYS = [
+  'inventory', 'recipes', 'plannedMeals', 'cookedLogs', 'shoppingList', 'purchaseLogs', 'rewards',
+  'wasteLogs', 'priceHistory', 'receiptLog', 'activity',
+] as const;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /**

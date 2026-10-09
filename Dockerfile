@@ -21,7 +21,7 @@ ENV PORT=3000
 ENV DATA_DIR=/app/data
 
 # Install curl for container healthcheck
-RUN apk add --no-cache curl
+RUN apk add --no-cache curl tzdata
 
 # Copy dependencies and built assets
 COPY package*.json ./

@@ -15,8 +15,13 @@ import {
   PurchaseLog,
   RewardsEntry,
   AppSettings,
-  DEFAULT_SETTINGS
+  DEFAULT_SETTINGS,
+  WasteLog,
+  PricePoint,
+  ReceiptRecord,
+  ActivityEntry
 } from './types';
+import { pricePointsFor } from './utils/priceHistory';
 import { SettingsProvider } from './context/SettingsContext';
 import { useAuth } from './context/AuthContext';
 import { mergeStates, SyncedState } from './utils/syncMerge';
@@ -24,7 +29,9 @@ import { ThemeChoice, loadTheme, saveTheme, applyTheme } from './utils/theme';
 import { HouseholdRequest } from './types';
 import { RequestsView } from './components/RequestsView';
 import { HouseholdModal } from './components/HouseholdModal';
-import { answerRequestApi, createRequestApi, deleteRequestApi, fetchRequestsApi } from './services/apiService';
+import { BackupModal } from './components/BackupModal';
+import { ConnectModal } from './components/ConnectModal';
+import { addRequestCommentApi, answerRequestApi, createRequestApi, deleteRequestApi, fetchRequestsApi } from './services/apiService';
 import { mergeIntoInventory, normalizeInventory, syncInventoryBatches, estimateCostFromPantry, todayISO, addDaysISO } from './utils/inventoryMerge';
 import { canonicalUnit } from './utils/units';
 import { formatMoney } from './utils/currency';
@@ -62,6 +69,8 @@ export default function App() {
   const [isAPKModalOpen, setIsAPKModalOpen] = useState(false);
   const [isUnraidModalOpen, setIsUnraidModalOpen] = useState(false);
   const [isHouseholdOpen, setIsHouseholdOpen] = useState(false);
+  const [isBackupOpen, setIsBackupOpen] = useState(false);
+  const [isConnectOpen, setIsConnectOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Android shortcuts handling on mount
@@ -154,6 +163,10 @@ export default function App() {
 
   const [purchaseLogs, setPurchaseLogs] = useState<PurchaseLog[]>(() => loadLocal('pantrypal_purchase_logs', []));
   const [rewards, setRewards] = useState<RewardsEntry[]>(() => loadLocal('pantrypal_rewards', []));
+  const [wasteLogs, setWasteLogs] = useState<WasteLog[]>(() => loadLocal('pantrypal_waste_logs', []));
+  const [priceHistory, setPriceHistory] = useState<PricePoint[]>(() => loadLocal('pantrypal_price_history', []));
+  const [receiptLog, setReceiptLog] = useState<ReceiptRecord[]>(() => loadLocal('pantrypal_receipt_log', []));
+  const [activity, setActivity] = useState<ActivityEntry[]>(() => loadLocal('pantrypal_activity', []));
   const [settings, setSettings] = useState<AppSettings>(() => ({
     ...DEFAULT_SETTINGS,
     ...loadLocal<Partial<AppSettings>>('pantrypal_settings', {}),
@@ -202,8 +215,8 @@ export default function App() {
   const revisionRef = useRef(0);
   const lastSyncedRef = useRef<SyncedState | null>(null);
   const savingRef = useRef(false);
-  const latestRef = useRef<SyncedState>({ inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, settings });
-  latestRef.current = { inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, settings };
+  const latestRef = useRef<SyncedState>({ inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings });
+  latestRef.current = { inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings };
 
   const toSyncedState = (data: any): SyncedState => ({
     inventory: Array.isArray(data?.inventory) ? data.inventory : [],
@@ -213,6 +226,10 @@ export default function App() {
     shoppingList: Array.isArray(data?.shoppingList) ? data.shoppingList : [],
     purchaseLogs: Array.isArray(data?.purchaseLogs) ? data.purchaseLogs : [],
     rewards: Array.isArray(data?.rewards) ? data.rewards : [],
+    wasteLogs: Array.isArray(data?.wasteLogs) ? data.wasteLogs : [],
+    priceHistory: Array.isArray(data?.priceHistory) ? data.priceHistory : [],
+    receiptLog: Array.isArray(data?.receiptLog) ? data.receiptLog : [],
+    activity: Array.isArray(data?.activity) ? data.activity : [],
     settings: data?.settings && typeof data.settings === 'object' ? data.settings : {},
   });
 
@@ -224,6 +241,10 @@ export default function App() {
     setShoppingList(st.shoppingList);
     setPurchaseLogs(st.purchaseLogs);
     setRewards(st.rewards);
+    setWasteLogs(st.wasteLogs);
+    setPriceHistory(st.priceHistory);
+    setReceiptLog(st.receiptLog);
+    setActivity(st.activity);
     setSettings(prev => ({ ...prev, ...st.settings }));
   };
 
@@ -360,15 +381,19 @@ export default function App() {
     const timer = setTimeout(saveToServer, 1200);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, auth.role, inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, settings]);
+  }, [hydrated, auth.role, inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings]);
 
   useEffect(() => {
     try {
       localStorage.setItem('pantrypal_purchase_logs', JSON.stringify(purchaseLogs));
       localStorage.setItem('pantrypal_rewards', JSON.stringify(rewards));
+      localStorage.setItem('pantrypal_waste_logs', JSON.stringify(wasteLogs));
+      localStorage.setItem('pantrypal_price_history', JSON.stringify(priceHistory));
+      localStorage.setItem('pantrypal_receipt_log', JSON.stringify(receiptLog));
+      localStorage.setItem('pantrypal_activity', JSON.stringify(activity));
       localStorage.setItem('pantrypal_settings', JSON.stringify(settings));
     } catch (e) {}
-  }, [purchaseLogs, rewards, settings]);
+  }, [purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings]);
 
   // Sync to localStorage
   useEffect(() => {
@@ -411,9 +436,17 @@ export default function App() {
       setShoppingList([]);
       setPurchaseLogs([]);
       setRewards([]);
+      setWasteLogs([]);
+      setPriceHistory([]);
+      setReceiptLog([]);
+      setActivity([]);
       try {
         localStorage.removeItem('pantrypal_purchase_logs');
         localStorage.removeItem('pantrypal_rewards');
+        localStorage.removeItem('pantrypal_waste_logs');
+        localStorage.removeItem('pantrypal_price_history');
+        localStorage.removeItem('pantrypal_receipt_log');
+        localStorage.removeItem('pantrypal_activity');
         localStorage.removeItem('pantrypal_inventory');
         localStorage.removeItem('pantrypal_recipes');
         localStorage.removeItem('pantrypal_planned_meals');
@@ -487,6 +520,85 @@ export default function App() {
     if (item) showToast(`Removed "${item.name}" from inventory`);
   };
 
+  // Taking an item out: threw it out (counts as waste), used it up, or removed by mistake
+  const handleDiscardItem = (id: string, outcome: 'wasted' | 'used' | 'removed') => {
+    const item = inventory.find(i => i.id === id);
+    if (!item) return;
+    setInventory(prev => prev.filter(i => i.id !== id));
+    if (outcome === 'wasted') {
+      const cost = Number((item.totalCost || item.quantity * item.unitPrice || 0).toFixed(2));
+      setWasteLogs(prev => [{
+        id: `waste-${Date.now()}-${Math.random().toString(36).substr(2, 3)}`,
+        date: todayISO(),
+        itemName: item.name,
+        category: item.category,
+        quantity: item.quantity,
+        unit: item.unit,
+        cost,
+        by: auth.user,
+      }, ...prev].slice(0, 1000));
+      logActivity(`threw out ${item.name}`);
+      showToast(`Logged ${item.name} as wasted${cost > 0 ? ` (${formatMoney(cost, settings.currency)})` : ''}`);
+    } else {
+      if (outcome === 'used') logActivity(`used up ${item.name}`);
+      showToast(`Removed "${item.name}" from inventory`);
+    }
+  };
+
+  // Staples below their minimum go on the shopping list at the last price paid
+  const lowStockItems = useMemo(
+    () => inventory.filter(i => typeof i.parLevel === 'number' && i.parLevel > 0 && i.quantity < i.parLevel),
+    [inventory]
+  );
+
+  const handleAddLowStockToShopping = (items: InventoryItem[]) => {
+    const onList = new Set(shoppingList.map(s => s.name.toLowerCase().trim()));
+    const toAdd = items.filter(i => !onList.has(i.name.toLowerCase().trim()));
+    if (toAdd.length === 0) {
+      showToast('Those are already on your shopping list');
+      return;
+    }
+    const added: ShoppingItem[] = toAdd.map((i, idx) => {
+      const need = Number(((i.parLevel ?? 0) - i.quantity).toFixed(2));
+      const price = i.latestUnitPrice ?? i.unitPrice;
+      return {
+        id: `shop-${Date.now()}-${idx}`,
+        name: i.name,
+        category: i.category,
+        quantity: need,
+        unit: i.unit,
+        estimatedCost: price > 0 ? Number((need * price).toFixed(2)) : undefined,
+        checked: false,
+        reason: `Running low: ${Number(i.quantity.toFixed(2))} of ${i.parLevel} ${i.unit}`,
+      };
+    });
+    setShoppingList(prev => [...added, ...prev]);
+    showToast(`Added ${added.length} staple${added.length === 1 ? '' : 's'} to your shopping list`);
+  };
+
+  const handleSetBudget = (amount: number | undefined) =>
+    setSettings(prev => ({ ...prev, monthlyBudget: amount && amount > 0 ? amount : undefined }));
+
+  const handleChangeAvoidList = (list: string[]) => setSettings(prev => ({ ...prev, avoidList: list }));
+
+  // A short line in the household activity feed (kept to the latest 150)
+  const logActivity = (text: string) => {
+    setActivity(prev => [
+      { id: `act-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`, at: new Date().toISOString(), user: auth.user, text },
+      ...prev,
+    ].slice(0, 150));
+  };
+
+  // Remembers what was paid for each item, so prices can be compared over time and between stores
+  const recordPrices = (items: Parameters<typeof pricePointsFor>[0], store?: string) => {
+    const points = pricePointsFor(items, store);
+    if (points.length === 0) return;
+    setPriceHistory(prev => [
+      ...points.map((p, i) => ({ ...p, id: `price-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 3)}` })),
+      ...prev,
+    ].slice(0, 4000));
+  };
+
   // Records money spent so the Cost tab can show monthly history
   const logPurchase = (
     items: { category: ItemCategory; totalCost: number }[],
@@ -527,6 +639,8 @@ export default function App() {
     const result = mergeIntoInventory(inventory, [item]);
     setInventory(result.inventory);
     logPurchase([item], source, item.purchaseDate);
+    recordPrices([item]);
+    logActivity(`added ${item.name} to the pantry`);
     showToast(result.merged > 0
       ? `Added more "${item.name}" to your existing stock`
       : `Added "${item.name}" to inventory`);
@@ -543,7 +657,7 @@ export default function App() {
     expirationDate: string;
     location: StorageLocation;
     notes?: string;
-  }[], meta?: { store?: string; purchaseDate?: string; rewardsPoints?: number }) => {
+  }[], meta?: { store?: string; purchaseDate?: string; rewardsPoints?: number; receiptKey?: string; total?: number }) => {
     const newItems: InventoryItem[] = items.map((it, idx) => ({
       ...it,
       id: `inv-rec-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 5)}`
@@ -552,6 +666,18 @@ export default function App() {
     const result = mergeIntoInventory(inventory, newItems);
     setInventory(result.inventory);
     logPurchase(newItems, 'receipt', meta?.purchaseDate || newItems[0]?.purchaseDate || todayISO(), meta?.store);
+    recordPrices(newItems, meta?.store);
+    if (meta?.receiptKey) {
+      setReceiptLog(prev => [{
+        id: `rcpt-${Date.now()}`,
+        key: meta.receiptKey!,
+        date: meta.purchaseDate || newItems[0]?.purchaseDate || todayISO(),
+        store: meta.store || '',
+        total: meta.total || 0,
+        itemCount: newItems.length,
+      }, ...prev].slice(0, 500));
+    }
+    logActivity(`added ${newItems.length} item${newItems.length === 1 ? '' : 's'} from a ${meta?.store ? `${meta.store} ` : ''}receipt`);
 
     let pointsNote = '';
     if (meta?.rewardsPoints && meta.rewardsPoints > 0) {
@@ -636,6 +762,7 @@ export default function App() {
     };
 
     setCookedLogs(prev => [newLog, ...prev]);
+    logActivity(`cooked ${recipe.name} (${servingsCooked} serving${servingsCooked === 1 ? '' : 's'})`);
     showToast(`Cooked "${recipe.name}"! Deducted ingredients from stock. Total cost: ${formatMoney(costBreakdown.totalCost, settings.currency)}`);
   };
 
@@ -707,6 +834,9 @@ export default function App() {
       id: `plan-${stamp}-${i}-${Math.random().toString(36).substr(2, 4)}`,
     }));
     setPlannedMeals(prev => [...prev, ...created]);
+    logActivity(created.length > 1
+      ? `planned ${meals[0].customName} for ${created.length} days from ${meals[0].date}`
+      : `planned ${meals[0].customName} for ${meals[0].date}`);
     showToast(created.length > 1
       ? `Planned "${meals[0].customName}" for ${created.length} days`
       : `Added "${meals[0].customName}" to meal plan on ${meals[0].date}`);
@@ -781,6 +911,8 @@ export default function App() {
 
     setInventory(mergeIntoInventory(inventory, newInvItems).inventory);
     logPurchase(newInvItems, 'shopping-list', todayStr);
+    recordPrices(newInvItems);
+    logActivity(`bought ${newInvItems.length} item${newInvItems.length === 1 ? '' : 's'} from the shopping list`);
     // Remove purchased items from shopping list
     setShoppingList(prev => prev.filter(item => !item.checked));
     showToast(`Moved ${newInvItems.length} purchased items to your pantry inventory!`);
@@ -796,6 +928,7 @@ export default function App() {
       return false;
     }
     setRecipes(prev => [recipe, ...prev]);
+    logActivity(`saved the recipe ${recipe.name}`);
     showToast(`Saved recipe "${recipe.name}"!`);
     return true;
   };
@@ -803,7 +936,10 @@ export default function App() {
   const handleDeleteRecipe = (id: string) => {
     const recipe = recipes.find(r => r.id === id);
     setRecipes(prev => prev.filter(r => r.id !== id));
-    if (recipe) showToast(`Deleted recipe "${recipe.name}"`);
+    if (recipe) {
+      logActivity(`deleted the recipe ${recipe.name}`);
+      showToast(`Deleted recipe "${recipe.name}"`);
+    }
   };
 
   // Remove a tag everywhere: from every recipe and from the suggested-tag bar
@@ -836,10 +972,16 @@ export default function App() {
 
   const handleAnswerRequest = async (id: string, status: 'open' | 'done' | 'declined') => {
     try {
+      const req = requests.find(r => r.id === id);
       setRequests(await answerRequestApi(id, status));
+      if (req && status !== 'open') logActivity(`${status === 'done' ? 'completed' : 'declined'} ${req.requestedBy}'s request: ${req.text}`);
     } catch (e: any) {
       showToast(e.message);
     }
+  };
+
+  const handleCommentRequest = async (id: string, text: string) => {
+    setRequests(await addRequestCommentApi(id, text));
   };
 
   const handleDeleteRequest = async (id: string) => {
@@ -927,6 +1069,8 @@ export default function App() {
         onOpenUnraidModal={() => setIsUnraidModalOpen(true)}
         requestsCount={openRequestsCount}
         onOpenHousehold={() => setIsHouseholdOpen(true)}
+        onOpenBackup={() => setIsBackupOpen(true)}
+        onOpenConnect={() => setIsConnectOpen(true)}
         theme={theme}
         onChangeTheme={(t) => { setTheme(t); saveTheme(t); }}
         onClearAllData={guard(handleClearAllData)}
@@ -949,7 +1093,9 @@ export default function App() {
           <InventoryManager
             inventory={inventory}
             onUpdateItem={guard(handleUpdateItem)}
-            onDeleteItem={guard(handleDeleteItem)}
+            onDiscardItem={guard(handleDiscardItem)}
+            priceHistory={priceHistory}
+            avoidList={settings.avoidList ?? []}
             onAddItem={guard(handleAddItem)}
             onSelectForRecipeSearch={handleSelectForRecipeSearch}
             onOpenReceiptScanner={guard(() => setIsReceiptModalOpen(true))}
@@ -967,6 +1113,7 @@ export default function App() {
             onDeleteRecipe={guard(handleDeleteRecipe)}
             onDeleteTag={guard(handleDeleteTag)}
             hiddenTags={settings.hiddenTags}
+            avoidList={settings.avoidList ?? []}
             onUpdateRecipe={guard(handleUpdateRecipe)}
             initialSearchQuery={recipeSearchQuery}
           />
@@ -992,6 +1139,9 @@ export default function App() {
             onDeleteItem={guard(handleDeleteShoppingItem)}
             onAddItem={guard(handleAddShoppingItem)}
             onPurchaseAndAddToInventory={guard(handlePurchaseAndAddToInventory)}
+            lowStockItems={lowStockItems}
+            onAddLowStock={guard(handleAddLowStockToShopping)}
+            onClearChecked={guard(() => setShoppingList(prev => prev.filter(i => !i.checked)))}
           />
         )}
 
@@ -1005,6 +1155,8 @@ export default function App() {
             onDelete={handleDeleteRequest}
             onAddToShopping={handleRequestToShopping}
             onAddToPlanner={handleRequestToPlanner}
+            onComment={handleCommentRequest}
+            activity={activity}
           />
         )}
 
@@ -1016,6 +1168,11 @@ export default function App() {
             rewards={rewards}
             onAddRewards={guard(handleAddRewards)}
             onDeleteRewards={guard(handleDeleteRewards)}
+            wasteLogs={wasteLogs}
+            priceHistory={priceHistory}
+            monthlyBudget={settings.monthlyBudget}
+            onSetBudget={guard(handleSetBudget)}
+            lowStockItems={lowStockItems}
           />
         )}
       </main>
@@ -1037,6 +1194,7 @@ export default function App() {
       <ReceiptScannerModal
         isOpen={isReceiptModalOpen}
         onClose={() => setIsReceiptModalOpen(false)}
+        receiptLog={receiptLog}
         onAddItemsToInventory={guard(handleBulkAddFromReceipt)}
       />
 
@@ -1055,7 +1213,14 @@ export default function App() {
         onClose={() => setIsAPKModalOpen(false)}
       />
 
-      <HouseholdModal isOpen={isHouseholdOpen} onClose={() => setIsHouseholdOpen(false)} />
+      <HouseholdModal
+        isOpen={isHouseholdOpen}
+        onClose={() => setIsHouseholdOpen(false)}
+        avoidList={settings.avoidList ?? []}
+        onChangeAvoidList={guard(handleChangeAvoidList)}
+      />
+      <BackupModal isOpen={isBackupOpen} onClose={() => setIsBackupOpen(false)} />
+      <ConnectModal isOpen={isConnectOpen} onClose={() => setIsConnectOpen(false)} />
 
       {/* Unraid OS & Docker Hosting Guide Modal */}
       <UnraidModal

@@ -81,6 +81,34 @@ After that the camera asks for permission like normal.
 
 ---
 
+## 📱 Put it on your phone like an app
+
+PantryPal is a web app that can install itself on a phone's home screen (no app store, no APK).
+Use the menu (the three lines next to the logo) -> **Install app**. It tells you exactly what your phone needs.
+
+Browsers only offer "install" and the camera on **https** addresses, so on plain `http://YOUR-UNRAID-IP:3000` you have three choices:
+
+1. **A trusted https address** (best, works on every phone): for example Tailscale (`tailscale serve --bg 3000`), or a domain with Nginx Proxy Manager / SWAG.
+2. **A one-time Chrome setting on each Android phone**: in Chrome open `chrome://flags/#unsafely-treat-insecure-origin-as-secure`, enable it, add your PantryPal address, relaunch. The Install guide in the app shows the exact address to paste.
+3. **Add to Home screen** from Chrome's menu: a shortcut only (no camera on plain http).
+
+---
+
+## 🏠 Everything else it does for the household
+
+- **Staples:** on an item, set **Keep at least**. Below that it shows as *Low*, appears under *Running low* on the shopping list, and the Cost tab shows what restocking will cost.
+- **Throwing food out:** removing an item asks *Threw it out / Used it up / Added by mistake*. "Threw it out" is counted as waste on the Cost tab.
+- **Prices:** each purchase records its price (and store, from receipts). Open an item to see its price history and cheapest store; the Cost tab lists items whose price moved 10% or more.
+- **Budget:** set a monthly budget on the Cost tab and watch *Total Spent MTD* against it.
+- **Duplicate receipts:** scanning a receipt with the same store, date and total as one already added warns you first.
+- **Recipes:** **Import recipe** from a link (or paste text, using the AI), **Cook mode** with big steps, timers and the screen kept awake, calories per serving when items have nutrition info, and red flags for foods on your *avoid* list (menu -> People & household).
+- **Shopping list:** shown in store-aisle order; Share, Print, Clear checked.
+- **Requests:** comments on requests, plus a *Household activity* feed.
+- **Backup & data** (menu): automatic daily backups, one-click backup, download everything or the pantry as a spreadsheet, restore.
+- **Calendar & alerts** (menu): subscribe your phone's calendar to the meal plan, and get one morning message (via [ntfy](https://ntfy.sh) or a webhook) about food expiring, staples running low and today's meals. Set the container's `TZ` (Timezone) so the time is right.
+
+---
+
 ## 🏷️ Barcode lookup
 
 Barcodes are looked up in the free [Open Food Facts](https://world.openfoodfacts.org) database (worldwide,

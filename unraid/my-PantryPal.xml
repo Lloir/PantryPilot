@@ -35,6 +35,7 @@ Features:
   <Config Name="Appdata Storage" Target="/app/data" Default="/mnt/user/appdata/pantrypal" Mode="rw" Description="Location on your Unraid array/cache where pantry inventory and recipes are saved." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/pantrypal</Config>
   <Config Name="Gemini API Key" Target="GEMINI_API_KEY" Default="" Mode="" Description="Optional Gemini API key for multimodal receipt OCR and smart recipe suggestion engine." Type="Variable" Display="always" Required="false" Mask="true"/>
   <Config Name="Server IP or name (for https)" Target="HTTPS_HOSTNAMES" Default="" Mode="" Description="Optional. Your Unraid server's IP address, so the https certificate matches the address you type in the browser." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Timezone" Target="TZ" Default="" Mode="" Description="Optional. Your timezone, e.g. Europe/London or America/Toronto. Used for the daily alert time and daily backups." Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="Node Environment" Target="NODE_ENV" Default="production" Mode="" Description="Node environment mode." Type="Variable" Display="advanced" Required="false" Mask="false">production</Config>
   <Config Name="Port" Target="PORT" Default="3000" Mode="" Description="Internal container port." Type="Variable" Display="advanced" Required="false" Mask="false">3000</Config>
 </Container>

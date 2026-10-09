@@ -19,6 +19,8 @@ import {
   Users,
   Inbox,
   Palette,
+  DatabaseBackup,
+  CalendarClock,
   X
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
@@ -42,6 +44,8 @@ interface NavbarProps {
   onClearAllData?: () => void;
   requestsCount: number;
   onOpenHousehold: () => void;
+  onOpenBackup: () => void;
+  onOpenConnect: () => void;
   theme: ThemeChoice;
   onChangeTheme: (theme: ThemeChoice) => void;
   currency: string;
@@ -66,6 +70,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onClearAllData,
   requestsCount,
   onOpenHousehold,
+  onOpenBackup,
+  onOpenConnect,
   theme,
   onChangeTheme,
   currency,
@@ -127,6 +133,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <Users className="w-4 h-4 text-emerald-700 shrink-0" />
                     <span>People &amp; household</span>
+                  </button>
+                  <button
+                    onClick={closeAnd(onOpenConnect)}
+                    className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-stone-800 hover:bg-stone-100 text-left"
+                  >
+                    <CalendarClock className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <span>Calendar &amp; alerts</span>
+                  </button>
+                  <button
+                    onClick={closeAnd(onOpenBackup)}
+                    className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-stone-800 hover:bg-stone-100 text-left"
+                  >
+                    <DatabaseBackup className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <span>Backup &amp; data</span>
                   </button>
 
                   <label className="flex items-center justify-between gap-3 px-3 py-2 text-sm text-stone-700">

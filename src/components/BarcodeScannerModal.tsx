@@ -21,7 +21,7 @@ import { CameraProblemNotice } from './CameraProblemNotice';
 import { CameraProblem, checkCameraSupport, classifyCameraError, findSecureAddress } from '../utils/camera';
 import { normalizeUnit } from '../utils/units';
 import { addDaysISO, todayISO } from '../utils/inventoryMerge';
-import { ItemCategory, StorageLocation, BarcodeLookupResult } from '../types';
+import { ItemCategory, StorageLocation, BarcodeLookupResult, ItemNutrition } from '../types';
 import { COMMON_BARCODES_DATABASE } from '../data/initialData';
 import { lookupBarcodeApi, saveBarcodeApi } from '../services/apiService';
 
@@ -40,6 +40,8 @@ interface BarcodeScannerModalProps {
     location: StorageLocation;
     barcode?: string;
     notes?: string;
+    nutrition?: ItemNutrition;
+    allergens?: string[];
   }) => void;
 }
 
@@ -301,7 +303,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       expirationDate,
       location,
       barcode: code || undefined,
-      notes: notes.trim()
+      notes: notes.trim(),
+      nutrition: lookupResult?.nutrition,
+      allergens: lookupResult?.allergens,
     });
 
     // Remember these details for this barcode, so the next scan fills in what you confirmed
@@ -315,6 +319,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         standardUnit: unit,
         estimatedShelfLifeDays: daysBetween(purchaseDate, expirationDate),
         storageLocation: location,
+        nutrition: lookupResult?.nutrition,
+        allergens: lookupResult?.allergens,
       }).catch(() => {});
     }
 
