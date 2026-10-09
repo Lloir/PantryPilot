@@ -19,6 +19,8 @@ import {
   Users,
   Inbox,
   Palette,
+  DatabaseBackup,
+  CalendarClock,
   X
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
@@ -37,11 +39,13 @@ interface NavbarProps {
   onOpenReceiptScanner: () => void;
   onOpenBarcodeScanner: () => void;
   onOpenAddItem: () => void;
-  onShowAndroidInstall?: () => void;
+  onShowInstall?: () => void;
   onOpenUnraidModal?: () => void;
   onClearAllData?: () => void;
   requestsCount: number;
   onOpenHousehold: () => void;
+  onOpenBackup: () => void;
+  onOpenConnect: () => void;
   theme: ThemeChoice;
   onChangeTheme: (theme: ThemeChoice) => void;
   currency: string;
@@ -61,11 +65,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenReceiptScanner,
   onOpenBarcodeScanner,
   onOpenAddItem,
-  onShowAndroidInstall,
+  onShowInstall,
   onOpenUnraidModal,
   onClearAllData,
   requestsCount,
   onOpenHousehold,
+  onOpenBackup,
+  onOpenConnect,
   theme,
   onChangeTheme,
   currency,
@@ -112,11 +118,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <span>Host on Unraid</span>
                   </button>
                   <button
-                    onClick={closeAnd(onShowAndroidInstall)}
+                    onClick={closeAnd(onShowInstall)}
                     className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-stone-800 hover:bg-stone-100 text-left"
                   >
                     <Smartphone className="w-4 h-4 text-emerald-700 shrink-0" />
-                    <span>Android APK</span>
+                    <span>Install app</span>
                   </button>
 
                   <div className="border-t border-stone-100 my-1" />
@@ -127,6 +133,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <Users className="w-4 h-4 text-emerald-700 shrink-0" />
                     <span>People &amp; household</span>
+                  </button>
+                  <button
+                    onClick={closeAnd(onOpenConnect)}
+                    className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-stone-800 hover:bg-stone-100 text-left"
+                  >
+                    <CalendarClock className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <span>Calendar &amp; alerts</span>
+                  </button>
+                  <button
+                    onClick={closeAnd(onOpenBackup)}
+                    className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-stone-800 hover:bg-stone-100 text-left"
+                  >
+                    <DatabaseBackup className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <span>Backup &amp; data</span>
                   </button>
 
                   <label className="flex items-center justify-between gap-3 px-3 py-2 text-sm text-stone-700">
@@ -202,9 +222,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div>
               <div className="flex items-center space-x-2">
                 <span className="text-xl font-bold tracking-tight text-stone-900">PantryPal</span>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                  Android App
-                </span>
               </div>
               <p className="text-xs text-stone-500 hidden sm:block">Receipt Scanner • Inventory • Recipe Cost & Meal Planner</p>
             </div>

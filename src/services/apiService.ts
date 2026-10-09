@@ -1,5 +1,6 @@
 import { BarcodeLookupResult, HouseholdRequest, HouseholdUser, InventoryItem, Recipe, ReceiptScanResult, RequestType, Role } from '../types';
 import { MeasureMode, canonicalUnit } from '../utils/units';
+import { ImportedRecipe } from '../utils/recipeImport';
 
 export async function scanReceiptApi(imageBase64: string, mimeType: string = 'image/jpeg', measureMode: MeasureMode = 'mass', currency: string = 'USD'): Promise<ReceiptScanResult> {
   const response = await fetch('/api/scan-receipt', {
@@ -129,10 +130,59 @@ export async function deleteRequestApi(id: string): Promise<HouseholdRequest[]> 
 export async function saveBarcodeApi(details: {
   barcode: string; name: string; category: string; averagePrice: number; standardQuantity: number;
   standardUnit: string; estimatedShelfLifeDays: number; storageLocation: string;
+  nutrition?: unknown; allergens?: string[];
 }): Promise<void> {
   await fetch('/api/barcode-save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(details),
   });
+}
+
+export async function addRequestCommentApi(id: string, text: string): Promise<HouseholdRequest[]> {
+  const data = await jsonOrThrow<{ requests: HouseholdRequest[] }>(
+    await fetch(`/api/requests/${encodeURIComponent(id)}/comments`, jsonInit('POST', { text })), 'Could not add the comment');
+  return data.requests;
+}
+
+export async function importRecipeFromUrlApi(url: string): Promise<{ recipe: ImportedRecipe; via: 'page' | 'ai' }> {
+  return jsonOrThrow(await fetch('/api/import-recipe', jsonInit('POST', { url })), "Couldn't import that recipe");
+}
+
+export async function parseRecipeTextApi(text: string): Promise<{ recipe: ImportedRecipe; via: 'ai' }> {
+  return jsonOrThrow(await fetch('/api/parse-recipe-text', jsonInit('POST', { text })), "Couldn't read that recipe");
+}
+
+// --- Backups, calendar link and alerts ---------------------------------------
+export interface BackupInfo { name: string; size: number; createdAt: string; kind: string }
+
+export async function fetchBackupsApi(): Promise<BackupInfo[]> {
+  return (await jsonOrThrow<{ backups: BackupInfo[] }>(await fetch('/api/backups'), 'Could not load backups')).backups;
+}
+export async function createBackupApi(): Promise<void> {
+  await jsonOrThrow(await fetch('/api/backups', jsonInit('POST')), 'Could not create the backup');
+}
+export async function restoreBackupApi(name: string): Promise<void> {
+  await jsonOrThrow(await fetch(`/api/backups/${encodeURIComponent(name)}/restore`, jsonInit('POST')), 'Could not restore the backup');
+}
+export async function importSnapshotApi(snapshot: unknown): Promise<void> {
+  await jsonOrThrow(await fetch('/api/import', jsonInit('POST', snapshot)), 'Could not import that file');
+}
+
+export async function fetchCalendarLinkApi(): Promise<string> {
+  return (await jsonOrThrow<{ path: string }>(await fetch('/api/calendar-link'), 'Could not load the calendar link')).path;
+}
+export async function regenerateCalendarLinkApi(): Promise<string> {
+  return (await jsonOrThrow<{ path: string }>(await fetch('/api/calendar-link/regenerate', jsonInit('POST')), 'Could not make a new link')).path;
+}
+
+export interface NotifyConfig { enabled: boolean; url: string; format: 'ntfy' | 'json'; time: string; daysAhead: number; lastSent: string | null }
+export async function fetchNotifyApi(): Promise<NotifyConfig> {
+  return jsonOrThrow(await fetch('/api/notify'), 'Could not load alert settings');
+}
+export async function saveNotifyApi(cfg: Omit<NotifyConfig, 'lastSent'>): Promise<void> {
+  await jsonOrThrow(await fetch('/api/notify', jsonInit('PUT', cfg)), 'Could not save alert settings');
+}
+export async function testNotifyApi(url: string, format: 'ntfy' | 'json'): Promise<void> {
+  await jsonOrThrow(await fetch('/api/notify/test', jsonInit('POST', { url, format })), 'Could not send the test');
 }

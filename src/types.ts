@@ -32,6 +32,18 @@ export interface InventoryItem {
   // soonest batch that has not expired yet.
   batches?: { quantity: number; expirationDate: string }[];
   latestUnitPrice?: number; // price per unit on the most recent purchase
+  parLevel?: number; // a staple: keep at least this much (in `unit`); below it, it is suggested for the shopping list
+  nutrition?: ItemNutrition;
+  allergens?: string[]; // allergen keys (see utils/allergens.ts) when a product database provided them
+}
+
+export interface ItemNutrition {
+  per: '100g' | '100ml';
+  kcal?: number;
+  protein?: number;
+  carbs?: number;
+  fat?: number;
+  nutriscore?: string; // a-e
 }
 
 export interface RecipeIngredient {
@@ -139,6 +151,8 @@ export interface BarcodeLookupResult {
   storageLocation: StorageLocation;
   foundInDatabase: boolean;
   confidence?: string;
+  nutrition?: ItemNutrition;
+  allergens?: string[];
   source?: string; // saved | local_database | open_food_facts | barcodelookup_com | upcitemdb | gemini_guess | not_found
 }
 
@@ -164,10 +178,12 @@ export interface AppSettings {
   measureMode: 'mass' | 'volume';
   currency: string; // ISO code used to display money, e.g. USD, GBP, CAD
   hiddenTags: string[]; // suggested tags the user removed from the tag bar
+  monthlyBudget?: number; // grocery budget for the month (in the chosen currency)
+  avoidList: string[]; // allergens / foods the household avoids (keys from utils/allergens.ts)
   migratedV4?: boolean; // one-time unit standardization / duplicate merge / purchase history seed
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { measureMode: 'mass', currency: 'USD', hiddenTags: [] };
+export const DEFAULT_SETTINGS: AppSettings = { measureMode: 'mass', currency: 'USD', hiddenTags: [], avoidList: [] };
 
 export type Role = 'admin' | 'member' | 'viewer';
 
@@ -192,4 +208,44 @@ export interface HouseholdRequest {
   resolvedBy?: string;
   resolvedAt?: string;
   note?: string;
+  comments?: { id: string; by: string; at: string; text: string }[];
+}
+
+export interface WasteLog {
+  id: string;
+  date: string; // YYYY-MM-DD
+  itemName: string;
+  category: ItemCategory;
+  quantity: number;
+  unit: string;
+  cost: number;
+  by?: string;
+}
+
+/** One price paid for an item, kept so prices can be compared over time and between stores. */
+export interface PricePoint {
+  id: string;
+  date: string; // YYYY-MM-DD
+  key: string; // lower-case item name
+  name: string;
+  unit: string;
+  unitPrice: number;
+  store?: string;
+}
+
+/** A receipt that was added, so scanning the same one again can be flagged. */
+export interface ReceiptRecord {
+  id: string;
+  key: string; // store|date|total
+  date: string;
+  store: string;
+  total: number;
+  itemCount: number;
+}
+
+export interface ActivityEntry {
+  id: string;
+  at: string; // ISO
+  user: string;
+  text: string;
 }

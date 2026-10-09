@@ -9,6 +9,10 @@ import https from 'https';
 import net from 'net';
 import os from 'os';
 import selfsigned from 'selfsigned';
+import { buildIcs } from './server-lib/ics';
+import { inventoryCsv } from './server-lib/csv';
+import { buildDigest } from './server-lib/notify';
+import { extractRecipeFromHtml, fetchPublicHtml, htmlToText } from './server-lib/recipeExtract';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -242,7 +246,7 @@ const requireAdmin = (_req: Request, res: Response, next: () => void) => {
 };
 
 // AI calls cost money and only matter to people who can edit, so view-only members are kept out
-app.use(['/api/scan-receipt', '/api/suggest-recipes', '/api/barcode-lookup', '/api/barcode-save'], (_req: Request, res: Response, next) => {
+app.use(['/api/scan-receipt', '/api/suggest-recipes', '/api/barcode-lookup', '/api/barcode-save', '/api/import-recipe', '/api/parse-recipe-text'], (_req: Request, res: Response, next) => {
   if (!canEdit(authOf(res))) return res.status(403).json({ error: 'View-only members cannot use scanning or AI suggestions' });
   next();
 });
@@ -343,6 +347,7 @@ interface HouseholdRequest {
   resolvedBy?: string;
   resolvedAt?: string;
   note?: string;
+  comments?: { id: string; by: string; at: string; text: string }[];
 }
 
 function readRequests(): HouseholdRequest[] {
@@ -425,19 +430,34 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
+// Anyone in the household can add a comment to a request (even view-only people)
+app.post('/api/requests/:id/comments', (req: Request, res: Response) => {
+  const auth = authOf(res);
+  const list = readRequests();
+  const entry = list.find(r => r.id === req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Request not found' });
+  const text = String(req.body?.text ?? '').trim().slice(0, 300);
+  if (!text) return res.status(400).json({ error: 'Write something first' });
+  entry.comments = [...(entry.comments ?? []), {
+    id: `c-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
+    by: auth.user,
+    at: new Date().toISOString(),
+    text,
+  }].slice(-50);
+  writeRequests(list);
+  res.json({ requests: list });
+});
+
 // Shared pantry database. Everyone in the household reads and writes the same copy.
 // `revision` goes up on every save; a save made from an out-of-date copy is refused (409)
 // so one person can't silently overwrite what another just changed.
-const EMPTY_DB = {
-  inventory: [],
-  recipes: [],
-  plannedMeals: [],
-  cookedLogs: [],
-  shoppingList: [],
-  purchaseLogs: [],
-  rewards: [],
-  settings: null,
-};
+// Every list the app keeps in the shared copy (plus `settings`)
+const LIST_KEYS = [
+  'inventory', 'recipes', 'plannedMeals', 'cookedLogs', 'shoppingList', 'purchaseLogs', 'rewards',
+  'wasteLogs', 'priceHistory', 'receiptLog', 'activity',
+] as const;
+const EMPTY_DB: Record<string, any> = { settings: null };
+LIST_KEYS.forEach(k => { EMPTY_DB[k] = []; });
 
 function readDb(): any | null {
   try {
@@ -468,19 +488,15 @@ app.post('/api/pantry-data', (req: Request, res: Response) => {
     if (req.body.baseRevision !== currentRevision) {
       return res.status(409).json({ error: 'Someone else changed the pantry first', current: current ?? { ...EMPTY_DB, revision: 0 } });
     }
-    const data = {
-      inventory: req.body.inventory || [],
-      recipes: req.body.recipes || [],
-      plannedMeals: req.body.plannedMeals || [],
-      cookedLogs: req.body.cookedLogs || [],
-      shoppingList: req.body.shoppingList || [],
-      purchaseLogs: req.body.purchaseLogs || [],
-      rewards: req.body.rewards || [],
-      settings: req.body.settings || null,
-      revision: currentRevision + 1,
-      updatedBy: authOf(res).user,
-      updatedAt: new Date().toISOString(),
-    };
+    // A list the sender didn't include (an older cached copy of the app) keeps its current value
+    const data: Record<string, any> = {};
+    for (const key of LIST_KEYS) {
+      data[key] = Array.isArray(req.body[key]) ? req.body[key] : (current?.[key] ?? []);
+    }
+    data.settings = req.body.settings || null;
+    data.revision = currentRevision + 1;
+    data.updatedBy = authOf(res).user;
+    data.updatedAt = new Date().toISOString();
     writeFileAtomic(DB_FILE, JSON.stringify(data, null, 2));
     res.json({ success: true, revision: data.revision, savedAt: data.updatedAt });
   } catch (err: any) {
@@ -679,20 +695,328 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
-// Android Digital Asset Links (Required for WebAPK / TWA Android verification)
-app.get('/.well-known/assetlinks.json', (_req: Request, res: Response) => {
+// --- Backups, export and restore -------------------------------------------
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const BACKUP_NAME_RE = /^(auto|manual|before-restore)-[\w.-]+\.json$/;
+const localDate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function snapshotEverything() {
+  return {
+    app: 'pantrypal',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    pantry: readDb() ?? { ...EMPTY_DB, revision: 0 },
+    requests: readRequests(),
+    barcodes: readBarcodeCache(),
+  };
+}
+
+function pruneBackups(prefix: string, keep: number) {
+  try {
+    fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.startsWith(`${prefix}-`))
+      .sort()
+      .reverse()
+      .slice(keep)
+      .forEach(f => fs.unlinkSync(path.join(BACKUP_DIR, f)));
+  } catch (e) {
+    console.warn('Could not prune backups:', e);
+  }
+}
+
+function writeBackup(kind: 'auto' | 'manual' | 'before-restore'): string {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const now = new Date();
+  const stamp = kind === 'auto'
+    ? localDate(now)
+    : `${localDate(now)}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+  const name = `${kind}-${stamp}.json`;
+  writeFileAtomic(path.join(BACKUP_DIR, name), JSON.stringify(snapshotEverything()));
+  pruneBackups(kind, kind === 'auto' ? 14 : kind === 'manual' ? 10 : 5);
+  return name;
+}
+
+function ensureDailyBackup() {
+  try {
+    if (!readDb()) return;
+    if (!fs.existsSync(path.join(BACKUP_DIR, `auto-${localDate()}.json`))) writeBackup('auto');
+  } catch (e) {
+    console.warn('Daily backup failed:', e);
+  }
+}
+
+function validSnapshot(snap: any): boolean {
+  return Boolean(
+    snap && snap.app === 'pantrypal' && snap.pantry && typeof snap.pantry === 'object' &&
+    LIST_KEYS.every(k => snap.pantry[k] === undefined || Array.isArray(snap.pantry[k]))
+  );
+}
+
+function restoreSnapshot(snap: any, by: string) {
+  writeBackup('before-restore');
+  const current = readDb();
+  const data: Record<string, any> = {};
+  for (const key of LIST_KEYS) data[key] = Array.isArray(snap.pantry[key]) ? snap.pantry[key] : [];
+  data.settings = snap.pantry.settings ?? null;
+  data.revision = (current?.revision ?? 0) + 1; // everyone's open copy refreshes
+  data.updatedBy = by;
+  data.updatedAt = new Date().toISOString();
+  writeFileAtomic(DB_FILE, JSON.stringify(data, null, 2));
+  if (Array.isArray(snap.requests)) writeRequests(snap.requests);
+  if (snap.barcodes && typeof snap.barcodes === 'object') writeFileAtomic(BARCODE_CACHE_FILE, JSON.stringify(snap.barcodes, null, 2));
+}
+
+// Downloads (no passwords are ever included)
+app.get('/api/export', (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'application/json');
-  const assetlinksPath = path.resolve(__dirname, 'public', '.well-known', 'assetlinks.json');
-  res.sendFile(assetlinksPath);
+  res.setHeader('Content-Disposition', `attachment; filename="pantrypal-export-${localDate()}.json"`);
+  res.send(JSON.stringify(snapshotEverything(), null, 2));
 });
 
-// Android TWA Manifest (Bubblewrap CLI configuration)
-app.get('/twa-manifest.json', (_req: Request, res: Response) => {
-  res.setHeader('Content-Type', 'application/json');
-  const twaPath = path.resolve(__dirname, 'public', 'twa-manifest.json');
-  res.sendFile(twaPath);
+app.get('/api/export/inventory.csv', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="pantry-${localDate()}.csv"`);
+  res.send('﻿' + inventoryCsv(readDb()?.inventory ?? []));
 });
 
+app.get('/api/backups', requireAdmin, (_req: Request, res: Response) => {
+  try {
+    const files = fs.existsSync(BACKUP_DIR) ? fs.readdirSync(BACKUP_DIR).filter(f => BACKUP_NAME_RE.test(f)) : [];
+    const list = files.map(name => {
+      const st = fs.statSync(path.join(BACKUP_DIR, name));
+      return { name, size: st.size, createdAt: st.mtime.toISOString(), kind: name.split('-')[0] };
+    }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    res.json({ backups: list });
+  } catch (e) {
+    res.status(500).json({ error: 'Could not list backups' });
+  }
+});
+
+app.post('/api/backups', requireAdmin, (_req: Request, res: Response) => {
+  try {
+    res.json({ name: writeBackup('manual') });
+  } catch (e) {
+    res.status(500).json({ error: 'Could not create the backup' });
+  }
+});
+
+app.get('/api/backups/:name', requireAdmin, (req: Request, res: Response) => {
+  const name = String(req.params.name);
+  const file = path.join(BACKUP_DIR, name);
+  if (!BACKUP_NAME_RE.test(name) || !fs.existsSync(file)) return res.status(404).json({ error: 'No such backup' });
+  res.download(file, name);
+});
+
+app.post('/api/backups/:name/restore', requireAdmin, (req: Request, res: Response) => {
+  const name = String(req.params.name);
+  const file = path.join(BACKUP_DIR, name);
+  if (!BACKUP_NAME_RE.test(name) || !fs.existsSync(file)) return res.status(404).json({ error: 'No such backup' });
+  try {
+    const snap = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    if (!validSnapshot(snap)) return res.status(400).json({ error: 'That backup file is not valid' });
+    restoreSnapshot(snap, authOf(res).user);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Restore failed:', e);
+    res.status(500).json({ error: 'Could not restore the backup' });
+  }
+});
+
+app.post('/api/import', requireAdmin, (req: Request, res: Response) => {
+  if (!validSnapshot(req.body)) return res.status(400).json({ error: "That file isn't a PantryPal export" });
+  try {
+    restoreSnapshot(req.body, authOf(res).user);
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Import failed:', e);
+    res.status(500).json({ error: 'Could not import that file' });
+  }
+});
+
+// --- Calendar feed of the meal plan ------------------------------------------
+// Phones subscribe to a private link (the long random token is the password, so no login is needed).
+const CALENDAR_FILE = path.join(DATA_DIR, 'calendar.json');
+
+function getCalendarToken(regenerate = false): string {
+  try {
+    if (!regenerate && fs.existsSync(CALENDAR_FILE)) {
+      const t = JSON.parse(fs.readFileSync(CALENDAR_FILE, 'utf-8')).token;
+      if (typeof t === 'string' && /^[a-f0-9]{48}$/.test(t)) return t;
+    }
+  } catch (e) {}
+  const token = crypto.randomBytes(24).toString('hex');
+  writeFileAtomic(CALENDAR_FILE, JSON.stringify({ token }));
+  return token;
+}
+
+app.get('/api/calendar-link', (_req: Request, res: Response) => {
+  res.json({ path: `/calendar/${getCalendarToken()}.ics` });
+});
+
+app.post('/api/calendar-link/regenerate', requireAdmin, (_req: Request, res: Response) => {
+  res.json({ path: `/calendar/${getCalendarToken(true)}.ics` });
+});
+
+app.get('/calendar/:file', (req: Request, res: Response) => {
+  const m = String(req.params.file).match(/^([a-f0-9]{48})\.ics$/);
+  if (!m || !safeEqual(m[1], getCalendarToken())) return res.status(404).send('Not found');
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(buildIcs(readDb()?.plannedMeals ?? []));
+});
+
+// --- Daily alerts to a phone (ntfy, or any webhook) --------------------------
+interface NotifyConfig {
+  enabled: boolean;
+  url: string;
+  format: 'ntfy' | 'json';
+  time: string; // HH:MM, server time
+  daysAhead: number;
+  lastSent?: string;
+}
+const NOTIFY_FILE = path.join(DATA_DIR, 'notify.json');
+const NOTIFY_DEFAULTS: NotifyConfig = { enabled: false, url: '', format: 'ntfy', time: '08:00', daysAhead: 3 };
+
+function readNotify(): NotifyConfig {
+  try {
+    if (fs.existsSync(NOTIFY_FILE)) return { ...NOTIFY_DEFAULTS, ...JSON.parse(fs.readFileSync(NOTIFY_FILE, 'utf-8')) };
+  } catch (e) {}
+  return { ...NOTIFY_DEFAULTS };
+}
+
+async function sendNotification(cfg: NotifyConfig, title: string, lines: string[]) {
+  const message = lines.join('\n');
+  const res = cfg.format === 'ntfy'
+    ? await fetch(cfg.url, { method: 'POST', headers: { Title: title, Tags: 'shopping_cart' }, body: message, signal: AbortSignal.timeout(8000) })
+    : await fetch(cfg.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, message, lines }), signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`The alert service answered ${res.status}`);
+}
+
+async function runDailyAlert() {
+  const cfg = readNotify();
+  if (!cfg.enabled || !cfg.url) return;
+  const now = new Date();
+  const today = localDate(now);
+  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  if (cfg.lastSent === today || hhmm < cfg.time) return;
+  try {
+    const db = readDb();
+    const digest = db ? buildDigest({ inventory: db.inventory ?? [], plannedMeals: db.plannedMeals ?? [], today, daysAhead: cfg.daysAhead }) : null;
+    if (digest) await sendNotification(cfg, digest.title, digest.lines);
+    writeFileAtomic(NOTIFY_FILE, JSON.stringify({ ...cfg, lastSent: today }, null, 2));
+  } catch (e) {
+    console.warn('Daily alert failed (will retry in a minute):', (e as Error).message);
+  }
+}
+
+app.get('/api/notify', requireAdmin, (_req: Request, res: Response) => {
+  const { lastSent, ...cfg } = readNotify();
+  res.json({ ...cfg, lastSent: lastSent ?? null });
+});
+
+app.put('/api/notify', requireAdmin, (req: Request, res: Response) => {
+  const b = req.body || {};
+  const url = String(b.url ?? '').trim();
+  if (b.enabled && !/^https?:\/\/\S+$/.test(url)) return res.status(400).json({ error: 'Enter the full alert address, starting with http:// or https://' });
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(b.time ?? ''))) return res.status(400).json({ error: 'Time should look like 08:00' });
+  const daysAhead = Math.min(14, Math.max(0, Math.round(Number(b.daysAhead))));
+  const cfg: NotifyConfig = {
+    enabled: Boolean(b.enabled),
+    url: url.slice(0, 500),
+    format: b.format === 'json' ? 'json' : 'ntfy',
+    time: b.time,
+    daysAhead: Number.isFinite(daysAhead) ? daysAhead : 3,
+    lastSent: readNotify().lastSent,
+  };
+  writeFileAtomic(NOTIFY_FILE, JSON.stringify(cfg, null, 2));
+  res.json({ success: true });
+});
+
+app.post('/api/notify/test', requireAdmin, async (req: Request, res: Response) => {
+  const cfg = { ...readNotify(), ...(req.body && typeof req.body.url === 'string' ? { url: req.body.url.trim(), format: req.body.format === 'json' ? 'json' : 'ntfy' } : {}) } as NotifyConfig;
+  if (!/^https?:\/\/\S+$/.test(cfg.url)) return res.status(400).json({ error: 'Enter the full alert address first' });
+  try {
+    const db = readDb();
+    const digest = db ? buildDigest({ inventory: db.inventory ?? [], plannedMeals: db.plannedMeals ?? [], today: localDate(), daysAhead: cfg.daysAhead }) : null;
+    await sendNotification(cfg, digest?.title ?? 'PantryPal test', digest?.lines ?? ['This is a test alert. Nothing needs attention right now.']);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(502).json({ error: `Could not send: ${(e as Error).message}` });
+  }
+});
+
+// --- Recipe import (from a link, or pasted text with the AI) ------------------
+async function parseRecipeTextWithAi(text: string) {
+  if (!ai) throw new Error('AI recipe reading needs a GEMINI_API_KEY set on the server');
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.8-flash',
+    contents: `Extract the recipe from this text. Copy the ingredient lines as written (e.g. "1 1/2 cups flour"). If something is not stated, use null or an empty list; do not invent it.\n\n${text}`,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          description: { type: Type.STRING },
+          servings: { type: Type.INTEGER },
+          prepMinutes: { type: Type.INTEGER },
+          cookMinutes: { type: Type.INTEGER },
+          ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+          instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
+          cuisine: { type: Type.STRING },
+          category: { type: Type.STRING },
+          keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ['name', 'ingredients', 'instructions'],
+      },
+    },
+  });
+  const parsed = JSON.parse(response.text || '{}');
+  if (!parsed.name || !Array.isArray(parsed.ingredients) || parsed.ingredients.length === 0) {
+    throw new Error("Couldn't find a recipe in that text");
+  }
+  return {
+    name: String(parsed.name),
+    description: String(parsed.description ?? ''),
+    servings: parsed.servings ?? null,
+    prepMinutes: parsed.prepMinutes ?? null,
+    cookMinutes: parsed.cookMinutes ?? null,
+    ingredients: parsed.ingredients.map(String),
+    instructions: (parsed.instructions ?? []).map(String),
+    cuisine: String(parsed.cuisine ?? ''),
+    category: String(parsed.category ?? ''),
+    keywords: (parsed.keywords ?? []).map(String).slice(0, 8),
+  };
+}
+
+app.post('/api/import-recipe', async (req: Request, res: Response) => {
+  const url = String(req.body?.url ?? '').trim();
+  if (!url) return res.status(400).json({ error: 'Paste a link to a recipe' });
+  try {
+    const { html, url: finalUrl } = await fetchPublicHtml(url);
+    const recipe = extractRecipeFromHtml(html);
+    if (recipe) return res.json({ recipe: { ...recipe, sourceUrl: finalUrl }, via: 'page' });
+    // No structured recipe on the page: let the AI read it, if it is set up
+    if (ai) {
+      const viaAi = await parseRecipeTextWithAi(htmlToText(html).slice(0, 15000));
+      return res.json({ recipe: { ...viaAi, sourceUrl: finalUrl }, via: 'ai' });
+    }
+    res.status(404).json({ error: "That page doesn't include recipe details PantryPal can read. Try copying the recipe text instead." });
+  } catch (e) {
+    const msg = (e as Error).message;
+    res.status(400).json({ error: /fetch failed|ENOTFOUND|ECONN|EAI_AGAIN/i.test(msg) ? "Couldn't open that link" : msg });
+  }
+});
+
+app.post('/api/parse-recipe-text', async (req: Request, res: Response) => {
+  const text = String(req.body?.text ?? '').trim().slice(0, 15000);
+  if (text.length < 20) return res.status(400).json({ error: 'Paste the recipe text first' });
+  try {
+    res.json({ recipe: await parseRecipeTextWithAi(text), via: 'ai' });
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+  }
+});
 
 // --- Barcode lookup ---------------------------------------------------------
 // Order: what your household saved -> built-in list -> Open Food Facts (free, worldwide)
@@ -743,8 +1067,15 @@ function parsePackSize(raw: unknown): { quantity: number; unit: string } {
 
 const lookupHeaders = { 'User-Agent': 'PantryPal/1.0 (self-hosted pantry app)' };
 
+// Open Food Facts allergen tags -> the keys the app uses
+const OFF_ALLERGENS: Record<string, string> = {
+  gluten: 'gluten', milk: 'milk', eggs: 'eggs', peanuts: 'peanuts', nuts: 'nuts', soybeans: 'soy',
+  fish: 'fish', crustaceans: 'shellfish', molluscs: 'shellfish', 'sesame-seeds': 'sesame',
+};
+
 function toResult(code: string, base: {
   name: string; brand?: string; categoryText: string; pack?: unknown; price?: number; source: string;
+  nutriments?: any; nutriscore?: string; allergenTags?: string[];
 }) {
   const g = guessCategory(base.categoryText || base.name);
   const { quantity, unit } = parsePackSize(base.pack);
@@ -760,7 +1091,29 @@ function toResult(code: string, base: {
     storageLocation: g.location,
     foundInDatabase: true,
     source: base.source,
+    ...(extras(base, unit)),
   };
+}
+
+// Calories and allergens, when the database has them
+function extras(base: { nutriments?: any; nutriscore?: string; allergenTags?: string[] }, unit: string) {
+  const out: Record<string, unknown> = {};
+  const n = base.nutriments;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Number(v.toFixed(1)) : undefined);
+  if (n && num(n['energy-kcal_100g']) !== undefined) {
+    out.nutrition = {
+      per: ['ml', 'l', 'fl oz'].includes(unit) ? '100ml' : '100g',
+      kcal: num(n['energy-kcal_100g']),
+      protein: num(n['proteins_100g']),
+      carbs: num(n['carbohydrates_100g']),
+      fat: num(n['fat_100g']),
+      nutriscore: /^[a-e]$/.test(base.nutriscore ?? '') ? base.nutriscore : undefined,
+    };
+  }
+  if (base.allergenTags?.length) {
+    out.allergens = Array.from(new Set(base.allergenTags.map(t => OFF_ALLERGENS[t.replace(/^[a-z]{2}:/, '')]).filter(Boolean)));
+  }
+  return out;
 }
 
 async function lookupOpenFoodFacts(code: string) {
@@ -770,7 +1123,7 @@ async function lookupOpenFoodFacts(code: string) {
     .filter(Boolean);
   for (const v of variants) {
     const r = await fetch(
-      `https://world.openfoodfacts.org/api/v2/product/${v}.json?fields=product_name,generic_name,brands,categories_tags,quantity`,
+      `https://world.openfoodfacts.org/api/v2/product/${v}.json?fields=product_name,generic_name,brands,categories_tags,quantity,nutriments,nutriscore_grade,allergens_tags`,
       { headers: lookupHeaders, signal: AbortSignal.timeout(6000) }
     );
     if (!r.ok) continue;
@@ -780,7 +1133,7 @@ async function lookupOpenFoodFacts(code: string) {
     if (data?.status === 1 && name) {
       const brand = String(p.brands || '').split(',')[0].trim();
       const tags = Array.isArray(p.categories_tags) ? p.categories_tags.map((t: string) => t.replace(/^[a-z]{2}:/, '').replace(/-/g, ' ')).join(' ') : '';
-      return toResult(code, { name, brand, categoryText: `${tags} ${name}`, pack: p.quantity, source: 'open_food_facts' });
+      return toResult(code, { name, brand, categoryText: `${tags} ${name}`, pack: p.quantity, source: 'open_food_facts', nutriments: p.nutriments, nutriscore: p.nutriscore_grade, allergenTags: p.allergens_tags });
     }
   }
   return null;
@@ -829,6 +1182,8 @@ app.post('/api/barcode-save', (req: Request, res: Response) => {
     storageLocation: String(b.storageLocation || 'Pantry'),
     foundInDatabase: true,
     source: 'saved',
+    nutrition: b.nutrition && typeof b.nutrition === 'object' ? b.nutrition : undefined,
+    allergens: Array.isArray(b.allergens) ? b.allergens.map(String).slice(0, 12) : undefined,
   };
   try {
     writeFileAtomic(BARCODE_CACHE_FILE, JSON.stringify(cache, null, 2));
@@ -1255,6 +1610,11 @@ async function startServer() {
   http.createServer(app).listen(Number(PORT), () => {
     console.log(`Server running on port ${PORT} (isProd: ${isProd})`);
   });
+
+  // Daily backup and the morning alert
+  ensureDailyBackup();
+  setInterval(ensureDailyBackup, 30 * 60 * 1000);
+  setInterval(() => { runDailyAlert(); }, 60 * 1000);
 
   if (HTTPS_PORT) {
     try {

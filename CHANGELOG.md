@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-09
+
+### Fixed
+- **Android install loop.** "Get Android APK" showed a QR code that opened the site, whose button said to scan the QR code again, and PWABuilder could never work for a server on your own network. All of that is gone. The app now has a real **Install** button (the browser's own install prompt) and an **Install app** guide in the menu that explains why plain `http` can't install, and gives three working options (trusted https such as Tailscale, a one-time Chrome setting for your address, or a home-screen shortcut). The unused APK/TWA download files and routes were removed.
+
+### Added
+- **Backups and export.** Automatic daily backups (last 14 kept) plus *Back up now*, download everything as JSON, the pantry as a spreadsheet, restore a backup, or restore from a file. Menu -> Backup & data. Passwords are never exported.
+- **Staples.** *Keep at least* on an item marks it as a staple. Below it shows *Low* (with a Low stock filter), appears under *Running low* on the shopping list with *Add all*, and the Cost tab shows what restocking will cost at the last price paid.
+- **Food waste tracking.** Removing an item asks *Threw it out / Used it up / Added by mistake*. Thrown-out food is counted on the Cost tab (this month, total, most wasted).
+- **Price history.** Every purchase records its price per unit (and the store when it comes from a receipt). Open an item to see its prices, how it has changed and which store was cheapest; the Cost tab lists the biggest price changes.
+- **Monthly budget** with a progress bar on *Total Spent MTD*.
+- **Duplicate receipt warning** when a receipt matches one already added (same store, date and total).
+- **Recipe import** from a link (reads the recipe data most sites include; falls back to the AI) or from pasted text. The result opens in the normal recipe form to check before saving.
+- **Cook mode:** big step-by-step view, ingredient checklist scaled to your servings, timers detected from the step text, screen kept awake.
+- **Nutrition and allergens.** Barcode lookups now bring calories, protein, carbs, fat, Nutri-Score and allergens. Items show them, and recipes show an approximate calories per serving. Choose foods the household avoids (menu -> People & household) and matching items and recipes are flagged in red.
+- **Calendar feed** of the meal plan: a private link to subscribe to in any calendar app.
+- **Daily alert** to your phone (ntfy or webhook): expiring food, low staples and today's meals, at a time you choose.
+- **Shopping list:** store-aisle order, Share, Print and Clear checked.
+- **Request comments** and a **Household activity** feed.
+- `npm test` runs checks for the trickier logic.
+
+### Changed
+- The Docker image includes timezone data, and the Unraid template has an optional **Timezone** setting (used for the alert time and daily backups).
+
 ## 2026-10-08 (5)
 
 ### Added

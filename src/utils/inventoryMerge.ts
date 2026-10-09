@@ -150,6 +150,9 @@ export function mergeIntoInventory(inventory: InventoryItem[], incoming: Invento
       unitPrice: quantity > 0 ? Number((totalCost / quantity).toFixed(2)) : existing.unitPrice,
       purchaseDate: [existing.purchaseDate, item.purchaseDate].filter(Boolean).sort().pop() || existing.purchaseDate,
       barcode: existing.barcode || item.barcode,
+      nutrition: existing.nutrition ?? item.nutrition,
+      allergens: existing.allergens ?? item.allergens,
+      parLevel: existing.parLevel ?? item.parLevel,
       latestUnitPrice: item.totalCost > 0 && addedQty > 0
         ? Number((item.totalCost / addedQty).toFixed(2))
         : existing.latestUnitPrice,

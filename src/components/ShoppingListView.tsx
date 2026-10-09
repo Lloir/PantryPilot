@@ -15,7 +15,7 @@ import { useCurrency } from '../context/SettingsContext';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
 import confetti from 'canvas-confetti';
-import { ItemCategory, ShoppingItem, StorageLocation } from '../types';
+import { InventoryItem, ItemCategory, ShoppingItem, StorageLocation } from '../types';
 
 interface ShoppingListViewProps {
   shoppingList: ShoppingItem[];
@@ -23,7 +23,16 @@ interface ShoppingListViewProps {
   onDeleteItem: (id: string) => void;
   onAddItem: (item: Omit<ShoppingItem, 'id' | 'checked'>) => void;
   onPurchaseAndAddToInventory: (items: ShoppingItem[]) => void;
+  lowStockItems: InventoryItem[];
+  onAddLowStock: (items: InventoryItem[]) => void;
+  onClearChecked: () => void;
 }
+
+// Roughly the order you meet things walking round a supermarket
+const AISLE_ORDER: ItemCategory[] = [
+  'Produce', 'Bakery', 'Meat & Seafood', 'Dairy & Eggs', 'Frozen', 'Pantry & Grains',
+  'Canned & Jarred', 'Spices & Condiments', 'Snacks', 'Beverages', 'Other',
+];
 
 const CATEGORIES: ItemCategory[] = [
   'Produce',
@@ -45,6 +54,9 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
   onDeleteItem,
   onAddItem,
   onPurchaseAndAddToInventory,
+  lowStockItems,
+  onAddLowStock,
+  onClearChecked,
 }) => {
   const { fmt } = useCurrency();
   const [newItemName, setNewItemName] = useState('');
@@ -68,6 +80,56 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
     return shoppingList.reduce((acc, it) => acc + (it.estimatedCost || 0), 0);
   }, [shoppingList]);
 
+  // Group order follows the store layout; the list as text is for sharing and printing
+  const orderedGroups = useMemo(
+    () => Object.entries(groupedItems).sort(
+      ([a], [b]) => (AISLE_ORDER.indexOf(a as ItemCategory) + 100) % 100 - (AISLE_ORDER.indexOf(b as ItemCategory) + 100) % 100
+    ),
+    [groupedItems]
+  );
+
+  const listAsText = () =>
+    orderedGroups
+      .map(([cat, items]) =>
+        `${cat}\n` + items.filter(i => !i.checked).map(i => `  - ${i.name}${i.quantity ? ` (${i.quantity}${i.unit ? ` ${i.unit}` : ''})` : ''}`).join('\n')
+      )
+      .filter(block => block.includes('\n  -'))
+      .join('\n\n');
+
+  const [shareNote, setShareNote] = useState<string | null>(null);
+  const handleShare = async () => {
+    const text = `Shopping list\n\n${listAsText()}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Shopping list', text });
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+      setShareNote('Copied to the clipboard');
+    } catch {
+      setShareNote('Could not share from this browser');
+    }
+    setTimeout(() => setShareNote(null), 2500);
+  };
+
+  const handlePrint = () => {
+    const w = window.open('', '_blank', 'width=600,height=800');
+    if (!w) return;
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    w.document.write(
+      `<title>Shopping list</title><body style="font-family:sans-serif;padding:24px"><h2>Shopping list</h2>` +
+      orderedGroups.map(([cat, items]) => {
+        const open = items.filter(i => !i.checked);
+        return open.length === 0 ? '' : `<h3 style="margin:16px 0 4px">${esc(cat)}</h3>` +
+          open.map(i => `<div style="padding:3px 0">&#9744; ${esc(i.name)}${i.quantity ? ` <span style="color:#666">(${i.quantity}${i.unit ? ` ${esc(i.unit)}` : ''})</span>` : ''}</div>`).join('');
+      }).join('') + '</body>'
+    );
+    w.document.close();
+    w.focus();
+    w.print();
+  };
+
+  const [dismissedLow, setDismissedLow] = useState(false);
   const checkedCount = useMemo(() => {
     return shoppingList.filter(it => it.checked).length;
   }, [shoppingList]);
@@ -126,6 +188,18 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
             <span className="text-xl font-black text-emerald-700">{fmt(totalEstimatedCost)}</span>
           </div>
 
+          <div className="flex items-center space-x-1">
+            <button onClick={handleShare} disabled={shoppingList.length === 0} className="px-2.5 py-2 border border-stone-300 text-stone-700 hover:bg-stone-100 disabled:opacity-40 rounded-xl text-xs font-semibold" title="Share or copy the list as text">
+              {shareNote ?? 'Share'}
+            </button>
+            <button onClick={handlePrint} disabled={shoppingList.length === 0} className="px-2.5 py-2 border border-stone-300 text-stone-700 hover:bg-stone-100 disabled:opacity-40 rounded-xl text-xs font-semibold" title="Print the list">
+              Print
+            </button>
+            <button onClick={() => { if (checkedCount > 0 && window.confirm(`Remove the ${checkedCount} checked item${checkedCount === 1 ? '' : 's'} from the list without adding them to the pantry?`)) onClearChecked(); }} disabled={checkedCount === 0} className="edit-only px-2.5 py-2 border border-stone-300 text-stone-700 hover:bg-stone-100 disabled:opacity-40 rounded-xl text-xs font-semibold" title="Remove checked items from the list">
+              Clear checked
+            </button>
+          </div>
+
           <button
             onClick={handleMoveToInventory}
             disabled={checkedCount === 0}
@@ -136,6 +210,32 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Staples running below their minimum */}
+      {lowStockItems.length > 0 && !dismissedLow && (
+        <div className="edit-only bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-amber-900">Running low ({lowStockItems.length})</h3>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => onAddLowStock(lowStockItems)}
+                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold"
+              >
+                Add all to list
+              </button>
+              <button onClick={() => setDismissedLow(true)} className="text-xs text-amber-800/70 hover:text-amber-900 underline">Hide</button>
+            </div>
+          </div>
+          <ul className="grid sm:grid-cols-2 gap-1.5">
+            {lowStockItems.map(i => (
+              <li key={i.id} className="flex items-center justify-between bg-white/70 rounded-lg px-3 py-1.5 text-xs">
+                <span className="text-stone-800"><strong>{i.name}</strong> <span className="text-stone-500">{Number(i.quantity.toFixed(2))} of {i.parLevel} {i.unit}</span></span>
+                <button onClick={() => onAddLowStock([i])} className="font-semibold text-amber-800 hover:underline">Add</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Quick Add Custom Item Form */}
       <form onSubmit={handleManualAdd} className="edit-only bg-white p-4 rounded-2xl border border-stone-200 shadow-2xs">
@@ -198,7 +298,7 @@ export const ShoppingListView: React.FC<ShoppingListViewProps> = ({
         </div>
       ) : (
         <div className="space-y-5">
-          {Object.entries(groupedItems).map(([categoryName, items]) => (
+          {orderedGroups.map(([categoryName, items]) => (
             <div key={categoryName} className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-2xs">
               <div className="bg-stone-50 px-4 py-2.5 border-b border-stone-200 flex items-center justify-between">
                 <span className="text-xs font-bold text-stone-700 uppercase tracking-wider">

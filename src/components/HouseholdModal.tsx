@@ -2,11 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { X, UserPlus, Trash2, KeyRound, Users } from 'lucide-react';
 import { HouseholdUser, Role } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { ALLERGEN_OPTIONS } from '../utils/allergens';
 import { addUserApi, changeMyPasswordApi, fetchUsersApi, removeUserApi, updateUserApi } from '../services/apiService';
 
 interface HouseholdModalProps {
   isOpen: boolean;
   onClose: () => void;
+  avoidList: string[];
+  onChangeAvoidList: (list: string[]) => void;
 }
 
 const ROLE_HELP: Record<Role, string> = {
@@ -15,7 +18,7 @@ const ROLE_HELP: Record<Role, string> = {
   viewer: 'Can look at everything and make requests, but not change anything',
 };
 
-export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose }) => {
+export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose, avoidList, onChangeAvoidList }) => {
   const auth = useAuth();
   const isAdmin = auth.role === 'admin';
   const [users, setUsers] = useState<HouseholdUser[]>([]);
@@ -157,6 +160,28 @@ export const HouseholdModal: React.FC<HouseholdModalProps> = ({ isOpen, onClose 
               </div>
             </form>
           )}
+
+          <section className="space-y-2 pt-2 border-t border-stone-100">
+            <h3 className="text-xs font-bold text-stone-700 uppercase tracking-wider">Foods the household avoids</h3>
+            <p className="text-[11px] text-stone-500">Items and recipes that contain these are flagged in red. It goes by what the product database says and the words in the name, so always check labels for allergies.</p>
+            <div className="flex flex-wrap gap-1.5">
+              {ALLERGEN_OPTIONS.map(o => {
+                const on = avoidList.includes(o.key);
+                return (
+                  <button
+                    key={o.key}
+                    type="button"
+                    disabled={auth.role === 'viewer'}
+                    aria-pressed={on}
+                    onClick={() => onChangeAvoidList(on ? avoidList.filter(k => k !== o.key) : [...avoidList, o.key])}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${on ? 'bg-red-600 border-red-600 text-white' : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-100'} disabled:opacity-60`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
 
           <form onSubmit={handleChangeMine} className="space-y-2 pt-2 border-t border-stone-100">
             <h3 className="text-xs font-bold text-stone-700 uppercase tracking-wider">Change my password</h3>

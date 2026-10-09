@@ -17,7 +17,8 @@ import {
   History
 } from 'lucide-react';
 import { useCurrency } from '../context/SettingsContext';
-import { CookedMealLog, InventoryItem, PurchaseLog, RewardsEntry } from '../types';
+import { CookedMealLog, InventoryItem, PricePoint, PurchaseLog, RewardsEntry, WasteLog } from '../types';
+import { priceKey, summarizePrices } from '../utils/priceHistory';
 import { todayISO } from '../utils/inventoryMerge';
 
 interface CostAnalyticsProps {
@@ -27,6 +28,11 @@ interface CostAnalyticsProps {
   rewards: RewardsEntry[];
   onAddRewards: (entry: Omit<RewardsEntry, 'id'>) => void;
   onDeleteRewards: (id: string) => void;
+  wasteLogs: WasteLog[];
+  priceHistory: PricePoint[];
+  monthlyBudget?: number;
+  onSetBudget: (amount: number | undefined) => void;
+  lowStockItems: InventoryItem[];
 }
 
 type HistoryRange = 3 | 6 | 12 | 0; // 0 = all time
@@ -47,7 +53,14 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
   rewards,
   onAddRewards,
   onDeleteRewards,
+  wasteLogs,
+  priceHistory,
+  monthlyBudget,
+  onSetBudget,
+  lowStockItems,
 }) => {
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetDraft, setBudgetDraft] = useState('');
   const { fmt } = useCurrency();
   const [historyRange, setHistoryRange] = useState<HistoryRange>(6);
   const [rewardPoints, setRewardPoints] = useState('');
@@ -97,6 +110,50 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
     const logs = purchaseLogs.filter(l => monthKey(l.date) === month);
     return { month, count: logs.length, total: Number(logs.reduce((a, l) => a + l.total, 0).toFixed(2)) };
   }, [purchaseLogs]);
+
+  // Food thrown out
+  const waste = useMemo(() => {
+    const month = todayISO().slice(0, 7);
+    const thisMonth = wasteLogs.filter(w => monthKey(w.date) === month);
+    const sum = (list: WasteLog[]) => Number(list.reduce((a, w) => a + w.cost, 0).toFixed(2));
+    const byItem = new Map<string, { name: string; cost: number; times: number }>();
+    wasteLogs.forEach(w => {
+      const k = w.itemName.toLowerCase();
+      const cur = byItem.get(k) ?? { name: w.itemName, cost: 0, times: 0 };
+      byItem.set(k, { name: cur.name, cost: cur.cost + w.cost, times: cur.times + 1 });
+    });
+    return {
+      monthCost: sum(thisMonth),
+      monthCount: thisMonth.length,
+      allCost: sum(wasteLogs),
+      top: Array.from(byItem.values()).sort((a, b) => b.cost - a.cost || b.times - a.times).slice(0, 3),
+      recent: wasteLogs.slice(0, 5),
+    };
+  }, [wasteLogs]);
+
+  // Items whose latest price moved noticeably compared with what was paid before
+  const priceMovers = useMemo(() => {
+    const seen = new Map<string, PricePoint>();
+    priceHistory.forEach(p => { if (!seen.has(p.key)) seen.set(p.key, p); });
+    return Array.from(seen.values())
+      .map(p => ({ p, s: summarizePrices(priceHistory, p.name, p.unit) }))
+      .filter(({ s }) => s.changePct !== undefined && Math.abs(s.changePct) >= 10 && s.points.length >= 2)
+      .sort((a, b) => Math.abs(b.s.changePct!) - Math.abs(a.s.changePct!))
+      .slice(0, 5);
+  }, [priceHistory]);
+
+  const restockEstimate = useMemo(() => {
+    let total = 0;
+    let priced = 0;
+    lowStockItems.forEach(i => {
+      const price = i.latestUnitPrice ?? i.unitPrice;
+      if (price > 0) {
+        total += Math.max(0, (i.parLevel ?? 0) - i.quantity) * price;
+        priced++;
+      }
+    });
+    return { total: Number(total.toFixed(2)), priced };
+  }, [lowStockItems]);
 
   const rewardsBalance = useMemo(() => rewards.reduce((a, r) => a + r.points, 0), [rewards]);
 
@@ -165,7 +222,7 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
           Smart Grocery Spending & Home Cooking ROI
         </h2>
         <p className="text-xs text-stone-500 mt-0.5">
-          See exactly how much each meal costs to cook based on your purchase prices, and track your takeout savings.
+          See exactly how much each meal costs to cook, what you spend each month, and what gets thrown out.
         </p>
       </div>
 
@@ -190,6 +247,54 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
           <span className="text-[11px] text-stone-500 mt-1 block">
             {spentMtd.count} purchase{spentMtd.count === 1 ? '' : 's'} in {monthLabel(spentMtd.month)}
           </span>
+          {monthlyBudget ? (
+            <div className="mt-2">
+              <div className="w-full bg-stone-200 rounded-full h-1.5">
+                <div
+                  className={`h-1.5 rounded-full ${spentMtd.total > monthlyBudget ? 'bg-red-500' : spentMtd.total > monthlyBudget * 0.85 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                  style={{ width: `${Math.min(100, (spentMtd.total / monthlyBudget) * 100)}%` }}
+                />
+              </div>
+              <span className={`text-[11px] font-semibold mt-1 block ${spentMtd.total > monthlyBudget ? 'text-red-600' : 'text-stone-500'}`}>
+                {spentMtd.total > monthlyBudget
+                  ? `${fmt(spentMtd.total - monthlyBudget)} over your ${fmt(monthlyBudget)} budget`
+                  : `${fmt(monthlyBudget - spentMtd.total)} left of ${fmt(monthlyBudget)}`}
+              </span>
+            </div>
+          ) : null}
+          <div className="edit-only mt-1.5">
+            {editingBudget ? (
+              <form
+                className="flex items-center space-x-1"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const n = parseFloat(budgetDraft);
+                  onSetBudget(Number.isFinite(n) && n > 0 ? n : undefined);
+                  setEditingBudget(false);
+                }}
+              >
+                <input
+                  autoFocus
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={budgetDraft}
+                  onChange={(e) => setBudgetDraft(e.target.value)}
+                  placeholder="Monthly budget"
+                  className="w-28 px-2 py-1 border border-stone-300 rounded-lg text-xs"
+                />
+                <button type="submit" className="text-[11px] font-bold text-emerald-700">Save</button>
+                <button type="button" onClick={() => setEditingBudget(false)} className="text-[11px] text-stone-400">Cancel</button>
+              </form>
+            ) : (
+              <button
+                onClick={() => { setBudgetDraft(monthlyBudget ? String(monthlyBudget) : ''); setEditingBudget(true); }}
+                className="text-[11px] font-semibold text-stone-500 hover:text-emerald-700 underline"
+              >
+                {monthlyBudget ? 'Change budget' : 'Set a monthly budget'}
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-2xs">
@@ -301,6 +406,72 @@ export const CostAnalytics: React.FC<CostAnalyticsProps> = ({
             ))}
           </div>
         )}
+      </div>
+
+      {/* Staples, waste and price changes */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-2xs space-y-3">
+          <h3 className="text-sm font-bold text-stone-900 uppercase tracking-wider">Food waste</h3>
+          {wasteLogs.length === 0 ? (
+            <p className="text-xs text-stone-400">Nothing thrown out yet. When you remove an item, choose "Threw it out" and it is counted here.</p>
+          ) : (
+            <>
+              <div className="flex items-baseline space-x-2">
+                <span className="text-2xl font-black text-red-600">{fmt(waste.monthCost)}</span>
+                <span className="text-xs text-stone-500">this month · {waste.monthCount} item{waste.monthCount === 1 ? '' : 's'}</span>
+              </div>
+              <p className="text-[11px] text-stone-500">{fmt(waste.allCost)} thrown out in total.
+                {spentMtd.total > 0 && waste.monthCost > 0 ? ` That is ${Math.round((waste.monthCost / spentMtd.total) * 100)}% of this month's spending.` : ''}
+              </p>
+              {waste.top.length > 0 && (
+                <p className="text-[11px] text-stone-600"><strong>Most wasted:</strong> {waste.top.map(t => `${t.name} (${fmt(t.cost)})`).join(', ')}</p>
+              )}
+              <ul className="text-[11px] text-stone-500 divide-y divide-stone-100 border border-stone-100 rounded-lg">
+                {waste.recent.map(w => (
+                  <li key={w.id} className="flex justify-between px-2.5 py-1">
+                    <span>{w.date} · {w.itemName} ({Number(w.quantity.toFixed(2))} {w.unit})</span>
+                    <span className="font-semibold text-stone-700">{fmt(w.cost)}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-2xs space-y-2">
+            <h3 className="text-sm font-bold text-stone-900 uppercase tracking-wider">Staples to restock</h3>
+            {lowStockItems.length === 0 ? (
+              <p className="text-xs text-stone-400">Nothing is below its minimum. Set "Keep at least" on an item to treat it as a staple.</p>
+            ) : (
+              <>
+                <div className="flex items-baseline space-x-2">
+                  <span className="text-2xl font-black text-amber-700">{restockEstimate.priced > 0 ? `≈ ${fmt(restockEstimate.total)}` : `${lowStockItems.length}`}</span>
+                  <span className="text-xs text-stone-500">{lowStockItems.length} item{lowStockItems.length === 1 ? '' : 's'} below minimum{restockEstimate.priced > 0 ? ', at the last price you paid' : ''}</span>
+                </div>
+                <p className="text-[11px] text-stone-500">{lowStockItems.map(i => i.name).join(', ')}</p>
+              </>
+            )}
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl border border-stone-200 shadow-2xs space-y-2">
+            <h3 className="text-sm font-bold text-stone-900 uppercase tracking-wider">Price changes</h3>
+            {priceMovers.length === 0 ? (
+              <p className="text-xs text-stone-400">Prices that move by 10% or more will show up here once you have bought an item a few times.</p>
+            ) : (
+              <ul className="text-xs divide-y divide-stone-100">
+                {priceMovers.map(({ p, s }) => (
+                  <li key={p.key} className="flex items-center justify-between py-1.5">
+                    <span className="text-stone-800 font-medium">{p.name}</span>
+                    <span className={`font-semibold ${s.changePct! > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {s.changePct! > 0 ? '▲' : '▼'} {Math.abs(Math.round(s.changePct!))}% · now {fmt(s.latest!)} / {p.unit}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Rewards Points */}

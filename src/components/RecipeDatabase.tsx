@@ -20,11 +20,17 @@ import {
   ChefHat, 
   Tag, 
   Trash2,
+  Download,
   X 
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { InventoryItem, Recipe, RecipeIngredient } from '../types';
-import { calculateRecipeCostAndMatch, RecipeCostBreakdown } from '../utils/costCalculator';
+import { calculateRecipeCostAndMatch, findMatchingInventoryItem, RecipeCostBreakdown } from '../utils/costCalculator';
+import { ImportRecipeModal } from './ImportRecipeModal';
+import { CookMode } from './CookMode';
+import { ImportedRecipe, toRecipeDraft } from '../utils/recipeImport';
+import { allergenLabel, avoidedIn, recipeAllergens } from '../utils/allergens';
+import { estimateRecipeNutrition } from '../utils/nutrition';
 import { suggestRecipesApi } from '../services/apiService';
 import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
@@ -40,6 +46,7 @@ interface RecipeDatabaseProps {
   onDeleteRecipe: (id: string) => void;
   onDeleteTag: (tag: string) => void;
   hiddenTags: string[];
+  avoidList: string[];
   onUpdateRecipe?: (recipe: Recipe) => void;
   initialSearchQuery?: string;
 }
@@ -69,6 +76,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   onDeleteRecipe,
   onDeleteTag,
   hiddenTags,
+  avoidList,
   onUpdateRecipe,
   initialSearchQuery = '',
 }) => {
@@ -109,6 +117,8 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   const [newRecInstructions, setNewRecInstructions] = useState<string>('');
 
   // AI Suggestion State
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [cookModeOpen, setCookModeOpen] = useState(false);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
@@ -141,7 +151,8 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
   const recipeAnalyses = useMemo(() => {
     return recipes.map(recipe => {
       const breakdown = calculateRecipeCostAndMatch(recipe, inventory);
-      return { recipe, breakdown };
+      const contains = recipeAllergens(recipe, name => findMatchingInventoryItem(name, inventory));
+      return { recipe, breakdown, contains };
     });
   }, [recipes, inventory]);
 
@@ -321,6 +332,22 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
     onUpdateRecipe?.(updatedRecipe);
   };
 
+  // An imported recipe opens in the normal "Add Custom Recipe" form so it can be checked and edited first
+  const handleImported = (imported: ImportedRecipe) => {
+    const d = toRecipeDraft(imported);
+    setNewRecName(d.name);
+    setNewRecDesc(d.description);
+    setNewRecMealType(d.mealType);
+    setNewRecCuisine(d.cuisine);
+    setNewRecServings(d.servings);
+    setNewRecPrep(d.prepMinutes);
+    setNewRecCook(d.cookMinutes);
+    setNewRecTags(d.tags);
+    setNewRecIngredients(d.ingredients.length > 0 ? d.ingredients : [{ name: '', quantity: 1, unit: 'count' }]);
+    setNewRecInstructions(d.instructions);
+    setIsCreateRecipeOpen(true);
+  };
+
   const handleSaveCustomRecipe = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRecName.trim()) return;
@@ -466,6 +493,13 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
 
           {/* Create Custom Recipe Button */}
           <div className="flex items-center space-x-2 shrink-0">
+            <button
+              onClick={() => setIsImportOpen(true)}
+              className="edit-only px-4 py-2 border border-stone-300 text-stone-800 hover:bg-stone-100 rounded-xl text-xs sm:text-sm font-semibold transition-colors flex items-center space-x-1.5"
+            >
+              <Download className="w-4 h-4" />
+              <span>Import recipe</span>
+            </button>
             <button
               onClick={() => setIsCreateRecipeOpen(true)}
               className="edit-only px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs sm:text-sm font-semibold transition-colors flex items-center space-x-1.5 shadow-xs"
@@ -681,7 +715,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredRecipes.map(({ recipe, breakdown }) => {
+          {filteredRecipes.map(({ recipe, breakdown, contains }) => {
             const hasExpiringIng = breakdown.expiringIngredientsUsed.length > 0;
             const totalTime = recipe.prepTimeMinutes + recipe.cookTimeMinutes;
 
@@ -749,6 +783,14 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                           </button>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {avoidedIn(contains, avoidList).length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {avoidedIn(contains, avoidList).map(k => (
+                        <span key={k} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">Contains {allergenLabel(k).toLowerCase()}</span>
+                      ))}
                     </div>
                   )}
 
@@ -1000,6 +1042,32 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
                   </div>
                 </div>
 
+                {(() => {
+                  const contains = recipeAllergens(selectedRecipeDetail, name => findMatchingInventoryItem(name, inventory));
+                  const hits = avoidedIn(contains, avoidList);
+                  const nutrition = estimateRecipeNutrition(selectedRecipeDetail, name => findMatchingInventoryItem(name, inventory), servingsOverride);
+                  if (hits.length === 0 && contains.length === 0 && !nutrition) return null;
+                  return (
+                    <div className="text-xs space-y-1.5">
+                      {hits.length > 0 && (
+                        <p className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-800 font-semibold">
+                          Heads up: contains {hits.map(k => allergenLabel(k).toLowerCase()).join(', ')} (on your avoid list)
+                        </p>
+                      )}
+                      {contains.length > 0 && (
+                        <p className="text-stone-500">Contains: {contains.map(allergenLabel).join(', ')}</p>
+                      )}
+                      {nutrition && (
+                        <p className="text-stone-600">
+                          <strong className="text-stone-800">≈ {nutrition.kcalPerServing} kcal</strong> per serving
+                          {nutrition.proteinPerServing ? `, ${nutrition.proteinPerServing} g protein` : ''}
+                          <span className="text-stone-400"> (from {nutrition.covered} of {nutrition.total} ingredients that have nutrition info)</span>
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Detailed Ingredient Cost Contribution Table */}
                 <div>
                   <h4 className="text-xs font-bold text-stone-700 uppercase tracking-wider mb-2">
@@ -1095,6 +1163,14 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
 
                 <div className="flex items-center space-x-3">
                   <button
+                    onClick={() => setCookModeOpen(true)}
+                    className="px-3 py-2 border border-stone-300 text-stone-700 rounded-xl text-xs font-semibold hover:bg-stone-100 flex items-center space-x-1.5"
+                    title="Big steps, timers, and the screen stays on"
+                  >
+                    <ChefHat className="w-4 h-4" />
+                    <span>Cook mode</span>
+                  </button>
+                  <button
                     onClick={() => setSelectedRecipeDetail(null)}
                     className="px-4 py-2 text-stone-500 text-xs font-medium hover:text-stone-700"
                   >
@@ -1113,6 +1189,11 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
           </div>
         );
       })()}
+
+      <ImportRecipeModal isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} onImported={handleImported} />
+      {cookModeOpen && selectedRecipeDetail && (
+        <CookMode recipe={selectedRecipeDetail} servings={servingsOverride} onClose={() => setCookModeOpen(false)} />
+      )}
 
       {/* Plan Meal Dialog */}
       {planningRecipe && (

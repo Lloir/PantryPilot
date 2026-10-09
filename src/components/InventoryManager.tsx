@@ -24,12 +24,16 @@ import { UnitSelect } from './UnitSelect';
 import { NumberField } from './NumberField';
 import { ItemNameInput } from './ItemNameInput';
 import { addDaysISO, todayISO } from '../utils/inventoryMerge';
-import { InventoryItem, ItemCategory, StorageLocation } from '../types';
+import { InventoryItem, ItemCategory, PricePoint, StorageLocation } from '../types';
+import { PriceHistoryPanel } from './PriceHistoryPanel';
+import { allergenLabel, avoidedIn, itemAllergens } from '../utils/allergens';
 
 interface InventoryManagerProps {
   inventory: InventoryItem[];
   onUpdateItem: (item: InventoryItem) => void;
-  onDeleteItem: (id: string) => void;
+  onDiscardItem: (id: string, outcome: 'wasted' | 'used' | 'removed') => void;
+  priceHistory: PricePoint[];
+  avoidList: string[];
   onAddItem: (item: Omit<InventoryItem, 'id'>) => void;
   onSelectForRecipeSearch: (ingredientName: string) => void;
   onOpenReceiptScanner: () => void;
@@ -55,7 +59,9 @@ const LOCATIONS: StorageLocation[] = ['Fridge', 'Freezer', 'Pantry', 'Counter', 
 export const InventoryManager: React.FC<InventoryManagerProps> = ({
   inventory,
   onUpdateItem,
-  onDeleteItem,
+  onDiscardItem,
+  priceHistory,
+  avoidList,
   onAddItem,
   onSelectForRecipeSearch,
   onOpenReceiptScanner,
@@ -65,7 +71,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedLocation, setSelectedLocation] = useState<string>('All');
-  const [statusFilter, setStatusFilter] = useState<'All' | 'expiring' | 'fresh' | 'abundant'>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'expiring' | 'fresh' | 'abundant' | 'low'>('All');
   const [sortBy, setSortBy] = useState<'expiry' | 'name' | 'cost' | 'qty'>('expiry');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
@@ -82,6 +88,10 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
 
   // Edit item state
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  // Taking an item out: asks whether it was thrown out, used up, or added by mistake
+  const [discarding, setDiscarding] = useState<InventoryItem | null>(null);
+  const isLow = (i: InventoryItem) => typeof i.parLevel === 'number' && i.parLevel > 0 && i.quantity < i.parLevel;
+  const lowCount = inventory.filter(isLow).length;
 
   const today = useMemo(() => new Date(`${todayISO()}T00:00:00`), []);
 
@@ -137,6 +147,8 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
           matchesStatus = days > 3;
         } else if (statusFilter === 'abundant') {
           matchesStatus = item.quantity >= 4 || item.category === 'Pantry & Grains';
+        } else if (statusFilter === 'low') {
+          matchesStatus = isLow(item);
         }
 
         return matchesSearch && matchesCategory && matchesLocation && matchesStatus;
@@ -161,10 +173,8 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
   const handleQuickQtyChange = (item: InventoryItem, delta: number) => {
     const newQty = Math.max(0, Number((item.quantity + delta).toFixed(2)));
     if (newQty === 0) {
-      if (confirm(`Remove "${item.name}" from inventory?`)) {
-        onDeleteItem(item.id);
-        return;
-      }
+      setDiscarding(item); // used it all up? threw it out? ask, and keep it if they cancel
+      return;
     }
     const unitPrice = item.unitPrice || (item.totalCost / (item.quantity || 1));
     onUpdateItem({
@@ -373,6 +383,16 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
               >
                 Fresh
               </button>
+              {lowCount > 0 && (
+                <button
+                  onClick={() => setStatusFilter('low')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                    statusFilter === 'low' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                  }`}
+                >
+                  Low stock ({lowCount})
+                </button>
+              )}
             </div>
           </div>
 
@@ -502,6 +522,18 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                       </>
                     )}
                   </div>
+                  {(isLow(item) || avoidedIn(itemAllergens(item), avoidList).length > 0) && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {isLow(item) && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800" title={`Keep at least ${item.parLevel} ${item.unit}`}>
+                          Low · keep {item.parLevel} {item.unit}
+                        </span>
+                      )}
+                      {avoidedIn(itemAllergens(item), avoidList).map(k => (
+                        <span key={k} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">Contains {allergenLabel(k).toLowerCase()}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Middle: Quantity & Stepper */}
@@ -561,13 +593,9 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm(`Remove "${item.name}" from your inventory?`)) {
-                          onDeleteItem(item.id);
-                        }
-                      }}
-                      className="p-1.5 text-stone-400 hover:text-red-600 rounded-lg hover:bg-stone-100 transition-colors"
-                      title="Delete Item"
+                      onClick={() => setDiscarding(item)}
+                      className="edit-only p-1.5 text-stone-400 hover:text-red-600 rounded-lg hover:bg-stone-100 transition-colors"
+                      title="Remove item"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -603,6 +631,10 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                     <tr key={item.id} className={isExpiring ? 'bg-amber-50/40 hover:bg-amber-50/70' : 'hover:bg-stone-50'}>
                       <td className="py-2.5 px-4 font-bold text-stone-900">
                         {item.name}
+                        {isLow(item) && <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">Low</span>}
+                        {avoidedIn(itemAllergens(item), avoidList).map(k => (
+                          <span key={k} className="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">{allergenLabel(k)}</span>
+                        ))}
                         {item.notes && <span className="block text-[10px] font-normal text-stone-500 italic">{item.notes}</span>}
                       </td>
                       <td className="py-2.5 px-4 text-stone-600">{item.category}</td>
@@ -635,7 +667,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                           <Edit2 className="w-3.5 h-3.5 inline" />
                         </button>
                         <button
-                          onClick={() => onDeleteItem(item.id)}
+                          onClick={() => setDiscarding(item)}
                           className="edit-only p-1 text-stone-400 hover:text-red-600 rounded"
                         >
                           <Trash2 className="w-3.5 h-3.5 inline" />
@@ -867,6 +899,44 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                   onChange={(e) => setEditingItem({ ...editingItem, expirationDate: e.target.value })}
                   className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
                 />
+                {editingItem.batches && editingItem.batches.length > 1 && (
+                  <p className="text-[11px] text-stone-500 mt-1">
+                    Bought on {editingItem.batches.length} occasions; this shows the soonest. Changing it sets one date for all of it.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block font-semibold text-stone-700 mb-1">Keep at least ({editingItem.unit}) <span className="font-normal text-stone-400">(staples)</span></label>
+                <NumberField
+                  allowEmpty
+                  placeholder="Not a staple"
+                  value={editingItem.parLevel}
+                  onChange={(v) => setEditingItem({ ...editingItem, parLevel: v && v > 0 ? v : undefined })}
+                  className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
+                />
+                <p className="text-[11px] text-stone-500 mt-1">When there is less than this, it shows as Low and can be added to the shopping list in one tap.</p>
+              </div>
+
+              {editingItem.nutrition && (
+                <div className="text-[11px] text-stone-600 bg-stone-50 border border-stone-100 rounded-lg px-3 py-2">
+                  <strong className="text-stone-700">Nutrition per {editingItem.nutrition.per === '100g' ? '100 g' : '100 ml'}:</strong>{' '}
+                  {[
+                    editingItem.nutrition.kcal !== undefined && `${editingItem.nutrition.kcal} kcal`,
+                    editingItem.nutrition.protein !== undefined && `${editingItem.nutrition.protein} g protein`,
+                    editingItem.nutrition.carbs !== undefined && `${editingItem.nutrition.carbs} g carbs`,
+                    editingItem.nutrition.fat !== undefined && `${editingItem.nutrition.fat} g fat`,
+                    editingItem.nutrition.nutriscore && `Nutri-Score ${editingItem.nutrition.nutriscore.toUpperCase()}`,
+                  ].filter(Boolean).join(' · ')}
+                  {itemAllergens(editingItem).length > 0 && (
+                    <span className="block mt-0.5">Contains: {itemAllergens(editingItem).map(allergenLabel).join(', ')}</span>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <label className="block font-semibold text-stone-700 mb-1">Price history</label>
+                <PriceHistoryPanel history={priceHistory} name={editingItem.name} unit={editingItem.unit} />
               </div>
 
               <div className="flex justify-end space-x-3 pt-3">
@@ -885,6 +955,40 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Remove-an-item dialog */}
+      {discarding && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" role="dialog" aria-label={`Remove ${discarding.name}`}>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-stone-200 space-y-3">
+            <h3 className="text-base font-bold text-stone-900">Remove "{discarding.name}"?</h3>
+            <p className="text-xs text-stone-500">
+              {Number(discarding.quantity.toFixed(2))} {discarding.unit} · {fmt(discarding.totalCost || discarding.quantity * discarding.unitPrice)}. Pick what happened so your numbers stay honest.
+            </p>
+            <button
+              onClick={() => { onDiscardItem(discarding.id, 'wasted'); setDiscarding(null); }}
+              className="w-full text-left px-4 py-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-800"
+            >
+              <span className="block text-sm font-bold">Threw it out</span>
+              <span className="block text-[11px]">Expired or spoiled. Counts as food waste.</span>
+            </button>
+            <button
+              onClick={() => { onDiscardItem(discarding.id, 'used'); setDiscarding(null); }}
+              className="w-full text-left px-4 py-3 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-800"
+            >
+              <span className="block text-sm font-bold">Used it up</span>
+              <span className="block text-[11px]">Finished, eaten or given away.</span>
+            </button>
+            <button
+              onClick={() => { onDiscardItem(discarding.id, 'removed'); setDiscarding(null); }}
+              className="w-full text-left px-4 py-3 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-800"
+            >
+              <span className="block text-sm font-bold">Added by mistake</span>
+              <span className="block text-[11px]">Just remove it.</span>
+            </button>
+            <button onClick={() => setDiscarding(null)} className="w-full py-2 text-xs font-semibold text-stone-500 hover:text-stone-800">Cancel</button>
           </div>
         </div>
       )}

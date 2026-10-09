@@ -14,6 +14,8 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DATA_DIR=/app/data
+      # Optional: your timezone (for the daily alert time and backups), e.g. Europe/London
+      - TZ=${TZ:-UTC}
       # Optional: your server's IP, so the https certificate matches it
       - HTTPS_HOSTNAMES=${HTTPS_HOSTNAMES:-}
       # Optional: Add your Gemini API key for smart receipt OCR & recipe generation
