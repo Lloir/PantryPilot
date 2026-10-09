@@ -30,6 +30,7 @@ RUN npm install --omit=dev --legacy-peer-deps && npm cache clean --force
 # Copy dist built in stage 1, server files, and runtime configs
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server.ts ./server.ts
+COPY --from=builder /app/server-lib ./server-lib
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/public ./public
 
