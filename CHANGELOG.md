@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-10
+
+### Fixed
+- **Receipt scanning no longer shows a made-up receipt.** When the AI wasn't available the server used to return 5 hard-coded items; it now shows a clear error (missing `GEMINI_API_KEY`, AI failure, or nothing readable).
+- AI model names are no longer hard-coded: tries `GEMINI_MODEL` (optional), `gemini-flash-latest`, then `gemini-2.5-flash`.
+- Sharper receipts: camera asks for 1080p+, JPEG quality 0.92, uploads are rotated correctly and capped at 2400px.
+- Stricter receipt prompt (every line, expand abbreviations, no invention, temperature 0).
+- Item names in "Add from receipt" are wide and readable. `/api/health` reports `hasGeminiKey`.
+
 ## 2026-10-09
 
 ### Fixed
