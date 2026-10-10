@@ -426,7 +426,8 @@ app.get('/api/health', (_req: Request, res: Response) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     isProduction: isProd,
-    httpsPort: HTTPS_PORT
+    httpsPort: HTTPS_PORT,
+    hasGeminiKey: Boolean(ai),
   });
 });
 
@@ -524,6 +525,31 @@ if (apiKey) {
       },
     },
   });
+}
+
+// Model names move around; try the configured one, then moving alias, then stable.
+const GEMINI_MODELS = [process.env.GEMINI_MODEL, 'gemini-flash-latest', 'gemini-2.5-flash'].filter(
+  (m, i, a): m is string => Boolean(m) && a.indexOf(m) === i,
+);
+let workingModel: string | null = null;
+async function generateWithFallback(params: any): Promise<any> {
+  if (!ai) throw new Error('AI is not configured');
+  const models = workingModel ? [workingModel, ...GEMINI_MODELS.filter(m => m !== workingModel)] : GEMINI_MODELS;
+  let lastErr: any;
+  for (const model of models) {
+    try {
+      const out = await generateWithFallback({ ...params, model });
+      workingModel = model;
+      return out;
+    } catch (e: any) {
+      lastErr = e;
+      console.error(`Gemini call failed on ${model}:`, e?.message || e);
+      const msg = String(e?.message || '');
+      // Only try the next model when this one looks missing/unsupported
+      if (!/not found|404|not supported|unsupported|NOT_FOUND/i.test(msg)) break;
+    }
+  }
+  throw lastErr;
 }
 
 // In-memory barcode catalog
@@ -948,8 +974,7 @@ app.post('/api/notify/test', requireAdmin, async (req: Request, res: Response) =
 // --- Recipe import (from a link, or pasted text with the AI) ------------------
 async function parseRecipeTextWithAi(text: string) {
   if (!ai) throw new Error('AI recipe reading needs a GEMINI_API_KEY set on the server');
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.8-flash',
+  const response = await generateWithFallback({
     contents: `Extract the recipe from this text. Copy the ingredient lines as written (e.g. "1 1/2 cups flour"). If something is not stated, use null or an empty list; do not invent it.\n\n${text}`,
     config: {
       responseMimeType: 'application/json',
@@ -1237,8 +1262,7 @@ app.post('/api/barcode-lookup', async (req: Request, res: Response) => {
     // 2. If Gemini is available, query Gemini to identify or enrich the barcode
     if (ai) {
       try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+        const response = await generateWithFallback({
           contents: `Look up or infer the grocery product for barcode / UPC code "${cleanBarcode}".
 Return a JSON object with:
 - name: realistic item name (e.g. "Honey Nut Cheerios Cereal")
@@ -1317,10 +1341,13 @@ app.post('/api/scan-receipt', async (req: Request, res: Response) => {
     // Clean base64 prefix if present
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
 
-    if (ai) {
+    if (!ai) {
+      res.status(503).json({ error: 'Receipt scanning needs a Gemini API key. Set GEMINI_API_KEY on the server and restart.' });
+      return;
+    }
+    {
       try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+        const response = await generateWithFallback({
           contents: {
             parts: [
               {
@@ -1331,7 +1358,7 @@ app.post('/api/scan-receipt', async (req: Request, res: Response) => {
               },
               {
                 text: `You are an expert grocery receipt OCR engine.
-Extract all details from this receipt:
+Read this receipt photo carefully and extract EVERY line item, top to bottom. Never invent or guess items that are not printed. Receipt text may be abbreviated (e.g. "ORG BNLS CHKN BRST"): expand to a readable product name. Skip totals, payment, change, discounts-only lines and loyalty lines. Multi-buy lines (e.g. "2 @ 1.50") are one item with quantity 2. Weighed items use the weight as quantity.\nExtract all details from this receipt:
 1. Store name (e.g. "Trader Joe's", "Costco", "Whole Foods", "Kroger", "Safeway", or whatever is shown).
 2. Purchase date in YYYY-MM-DD format (if unclear, use today's date, ${new Date().toISOString().split('T')[0]}).
 3. Subtotal, tax, and total amount paid.
@@ -1350,6 +1377,8 @@ Return clean JSON matching the schema.`,
             ],
           },
           config: {
+            temperature: 0,
+            maxOutputTokens: 8192,
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
@@ -1384,43 +1413,25 @@ Return clean JSON matching the schema.`,
         });
 
         const text = response.text;
-        if (text) {
-          const parsed = JSON.parse(text);
-          // Add default selected state
-          const formattedItems = (parsed.items || []).map((it: any) => ({
-            ...it,
-            selected: true,
-          }));
-          res.json({
-            ...parsed,
-            items: formattedItems,
-            confidenceScore: 0.98,
-            source: 'gemini_multimodal_vision',
-          });
+        if (!text) throw new Error('empty response');
+        const parsed = JSON.parse(text);
+        const items = (parsed.items || []).filter((it: any) => it && String(it.name || '').trim());
+        if (items.length === 0) {
+          res.status(422).json({ error: 'No items could be read from that photo. Try a sharper, well-lit, flat photo of the whole receipt.' });
           return;
         }
+        res.json({
+          ...parsed,
+          items: items.map((it: any) => ({ ...it, selected: true })),
+          source: 'gemini_multimodal_vision',
+        });
+        return;
       } catch (geminiError: any) {
         console.error('Gemini vision receipt parsing error:', geminiError);
+        res.status(502).json({ error: 'The AI could not read this receipt: ' + (String(geminiError?.message || '').slice(0, 200) || 'unknown error') });
+        return;
       }
     }
-
-    // High quality fallback parser in case key is not set or parsing error
-    res.json({
-      storeName: 'Local Grocery Market',
-      purchaseDate: new Date().toISOString().split('T')[0],
-      subtotal: 19.85,
-      tax: 1.45,
-      total: 21.30,
-      confidenceScore: 0.90,
-      items: [
-        { name: 'Fresh Gala Apples', category: 'Produce', quantity: 3, unit: 'count', unitPrice: 0.89, totalPrice: 2.67, estimatedShelfLifeDays: 14, selected: true },
-        { name: 'Organic Almond Milk', category: 'Dairy & Eggs', quantity: 64, unit: 'oz', unitPrice: 0.06, totalPrice: 3.84, estimatedShelfLifeDays: 12, selected: true },
-        { name: 'Boneless Pork Chops', category: 'Meat & Seafood', quantity: 1.5, unit: 'lb', unitPrice: 4.99, totalPrice: 7.49, estimatedShelfLifeDays: 4, selected: true },
-        { name: 'Sourdough Bread Loaf', category: 'Bakery', quantity: 1, unit: 'count', unitPrice: 3.99, totalPrice: 3.99, estimatedShelfLifeDays: 6, selected: true },
-        { name: 'Canned Garbanzo Beans', category: 'Canned & Jarred', quantity: 1, unit: 'can', unitPrice: 1.86, totalPrice: 1.86, estimatedShelfLifeDays: 700, selected: true },
-      ],
-      source: 'smart_parser_fallback',
-    });
   } catch (err: any) {
     console.error('Error scanning receipt:', err);
     res.status(500).json({ error: err.message || 'Failed to scan receipt' });
@@ -1465,8 +1476,7 @@ Generate 2 to 3 delicious, realistic recipes that:
 7. Every recipe must be clearly different from the others you return.
 ${existingNames.length ? `8. The user already has these recipes, so do NOT suggest them or close variations of them:\n${existingNames.map(n => `- ${n}`).join('\n')}` : ''}`;
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+        const response = await generateWithFallback({
           contents: prompt,
           config: {
             responseMimeType: 'application/json',

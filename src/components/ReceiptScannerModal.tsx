@@ -120,13 +120,27 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
+    // Re-encode through an <img>/canvas so EXIF rotation is applied and huge photos are shrunk
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const max = 2400;
+      const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.naturalWidth * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const base64 = canvas.toDataURL('image/jpeg', 0.92);
+      URL.revokeObjectURL(url);
       setImagePreview(base64);
       triggerScan(base64);
     };
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      setErrorMessage('Could not open that image. Try a JPEG or PNG photo.');
+    };
+    img.src = url;
+    e.target.value = '';
   };
 
   const startCamera = async () => {
@@ -141,7 +155,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
       setIsCameraActive(true);
       setErrorMessage(null);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
       });
       streamRef.current = stream;
       if (videoRef.current) {
@@ -162,7 +176,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
     const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg');
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
       stopCamera();
       setImagePreview(dataUrl);
       triggerScan(dataUrl);
@@ -184,28 +198,8 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
       });
     } catch (err: any) {
       console.error('Scan error:', err);
-      // Clean fallback if server error so user isn't stuck
-      setScanResult({
-        storeName: 'Grocery Store',
-        purchaseDate: new Date().toISOString().split('T')[0],
-        subtotal: 0,
-        tax: 0,
-        total: 0,
-        confidenceScore: 0.5,
-        items: [
-          {
-            name: 'Grocery Item',
-            category: 'Produce',
-            quantity: 1,
-            unit: 'count',
-            unitPrice: 0,
-            totalPrice: 0,
-            estimatedShelfLifeDays: 7,
-            selected: true,
-          }
-        ]
-      });
-      setErrorMessage('Could not auto-detect items from receipt. You can manually enter details below.');
+      setScanResult(null);
+      setErrorMessage(err?.message || 'Could not read the receipt. Try again with a clearer photo.');
     } finally {
       setIsScanning(false);
     }
@@ -559,7 +553,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
                             className="rounded text-emerald-600 focus:ring-emerald-500"
                           />
                         </th>
-                        <th className="py-2 px-3 text-left">Item Name</th>
+                        <th className="py-2 px-3 text-left min-w-[16rem]">Item Name</th>
                         <th className="py-2 px-3 text-left">Category</th>
                         <th className="py-2 px-3 text-left w-20">Qty</th>
                         <th className="py-2 px-3 text-left w-20">Unit</th>
@@ -580,9 +574,10 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
                               className="rounded text-emerald-600 focus:ring-emerald-500"
                             />
                           </td>
-                          <td className="py-2 px-3">
+                          <td className="py-2 px-3 min-w-[16rem]">
                             <input
                               type="text"
+                              title={item.name}
                               value={item.name}
                               onChange={(e) => handleItemFieldChange(idx, 'name', e.target.value)}
                               className="w-full bg-transparent border-b border-transparent hover:border-stone-300 focus:border-emerald-500 focus:bg-stone-50 px-1 py-0.5 rounded"
