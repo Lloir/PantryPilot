@@ -538,7 +538,7 @@ async function generateWithFallback(params: any): Promise<any> {
   let lastErr: any;
   for (const model of models) {
     try {
-      const out = await generateWithFallback({ ...params, model });
+      const out = await ai.models.generateContent({ ...params, model });
       workingModel = model;
       return out;
     } catch (e: any) {

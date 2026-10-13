@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-13
+
+### Fixed
+- Receipt scanning (and every other AI feature) crashed with "Maximum call stack size exceeded": the new model-fallback helper called itself. It now calls Gemini directly.
+
 ## 2026-10-10
 
 ### Fixed
