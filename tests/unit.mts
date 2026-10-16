@@ -11,9 +11,10 @@ import { extractRecipeFromHtml, isoDurationToMinutes, isPrivateAddress, assertPu
 import { buildDigest } from '../server-lib/notify';
 import { csvCell } from '../server-lib/csv';
 import { hashPassword, isPasswordHash, verifyPassword } from '../server-lib/passwords';
-import { isValidSnapshot } from '../server-lib/snapshot';
+import { isValidSnapshot, summarizeSnapshot } from '../server-lib/snapshot';
 import { calculateRecipeCostAndMatch, findMatchingInventoryItem } from '../src/utils/costCalculator';
 import { forecastInventoryDeductions, generateShoppingListFromMealPlan } from '../src/utils/inventoryForecaster';
+import { attachOnlineRetry, syncRetryDelay } from '../src/utils/syncRetry';
 
 let failed = 0;
 const eq = (actual: unknown, expected: unknown, name: string) => {
@@ -149,6 +150,26 @@ const validExport = { app: 'pantrypal', pantry: { inventory: [{ id: 'i', name: '
 eq(isValidSnapshot(validExport), true, 'valid backup snapshot');
 eq(isValidSnapshot({ ...validExport, pantry: { ...validExport.pantry, inventory: [{ id: 'i', name: 'Milk', quantity: '1' }] } }), false, 'malformed inventory rejected in snapshot');
 eq(isValidSnapshot({ ...validExport, requests: [null] }), false, 'malformed request rejected in snapshot');
+const currentExport = {
+  ...validExport, version: 2,
+  pantry: {
+    ...validExport.pantry,
+    recipes: [], plannedMeals: [], cookedLogs: [], shoppingList: [], purchaseLogs: [], rewards: [],
+    wasteLogs: [], priceHistory: [], receiptLog: [], activity: [],
+  },
+};
+eq(isValidSnapshot(currentExport), true, 'complete current-format snapshot accepted');
+eq(isValidSnapshot({ ...currentExport, pantry: { ...currentExport.pantry, recipes: undefined } }), false, 'current snapshot requires every collection');
+eq(isValidSnapshot({ ...validExport, version: 3 }), false, 'unknown snapshot version rejected');
+eq(summarizeSnapshot(validExport, { inventory: [{}, {}], settings: { currency: 'USD' } }).shoppingList.incoming, null, 'preview marks omitted legacy collections as preserved');
+eq([syncRetryDelay(1), syncRetryDelay(2), syncRetryDelay(50)], [1000, 2000, 30000], 'sync retry delay uses bounded exponential backoff');
+const onlineEvents = new EventTarget();
+let reconnectRetries = 0;
+const detachOnlineRetry = attachOnlineRetry(onlineEvents, () => reconnectRetries++);
+onlineEvents.dispatchEvent(new Event('online'));
+detachOnlineRetry();
+onlineEvents.dispatchEvent(new Event('online'));
+eq(reconnectRetries, 1, 'online event retries sync and cleanup removes listener');
 
 // daily alert and csv
 const dg = buildDigest({ today: '2026-10-09', daysAhead: 3, inventory: [{ name: 'Chicken', quantity: 2, unit: 'lb', expirationDate: '2026-10-10' }, { name: 'Rice', quantity: 1, unit: 'lb', expirationDate: '2027-01-01', parLevel: 3 }, { name: 'Gone', quantity: 0, unit: 'lb', expirationDate: '2026-10-01' }], plannedMeals: [{ date: '2026-10-09', slot: 'Dinner', customName: 'Stew' }] });

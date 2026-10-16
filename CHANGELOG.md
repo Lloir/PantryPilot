@@ -11,9 +11,12 @@
 - Docker now uses frozen Bun installs and the package start command, and its health checks no longer require curl.
 - Docker images now include the original `v*` release tag and a short-SHA tag for rollbacks.
 - Pantry sync queues edits made during an active save; recipe and meal matching no longer treats partial words or incompatible units as available stock.
+- Backup and import flows show a count preview before replacing household data. Older partial exports preserve collections and settings they do not contain; new exports require all collections.
+- Failed pantry syncs are visible and retried with bounded backoff, with an immediate retry when connectivity returns.
 
 ### Fixed
 - Calendar exports now correctly escape semicolons, and malformed backup/import records are rejected before restore.
+- Added HTTP integration coverage for authentication, revision conflicts, backup preview/restore, and legacy/current import validation.
 
 ## 2026-10-13
 

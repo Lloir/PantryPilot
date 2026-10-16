@@ -14,7 +14,7 @@ import { inventoryCsv } from './server-lib/csv';
 import { buildDigest } from './server-lib/notify';
 import { extractRecipeFromHtml, fetchPublicHtml, htmlToText } from './server-lib/recipeExtract';
 import { hashPassword, isPasswordHash, verifyPassword } from './server-lib/passwords';
-import { isValidSnapshot } from './server-lib/snapshot';
+import { isValidSnapshot, summarizeSnapshot } from './server-lib/snapshot';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -763,7 +763,7 @@ const localDate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() 
 function snapshotEverything() {
   return {
     app: 'pantrypal',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     pantry: readDb() ?? { ...EMPTY_DB, revision: 0 },
     requests: readRequests(),
@@ -809,8 +809,8 @@ function restoreSnapshot(snap: any, by: string) {
   writeBackup('before-restore');
   const current = readDb();
   const data: Record<string, any> = {};
-  for (const key of LIST_KEYS) data[key] = Array.isArray(snap.pantry[key]) ? snap.pantry[key] : [];
-  data.settings = snap.pantry.settings ?? null;
+  for (const key of LIST_KEYS) data[key] = Array.isArray(snap.pantry[key]) ? snap.pantry[key] : current?.[key] ?? [];
+  data.settings = snap.pantry.settings ?? current?.settings ?? null;
   data.revision = (current?.revision ?? 0) + 1; // everyone's open copy refreshes
   data.updatedBy = by;
   data.updatedAt = new Date().toISOString();
@@ -860,6 +860,19 @@ app.get('/api/backups/:name', requireAdmin, (req: Request, res: Response) => {
   res.download(file, name);
 });
 
+app.get('/api/backups/:name/preview', requireAdmin, (req: Request, res: Response) => {
+  const name = String(req.params.name);
+  const file = path.join(BACKUP_DIR, name);
+  if (!BACKUP_NAME_RE.test(name) || !fs.existsSync(file)) return res.status(404).json({ error: 'No such backup' });
+  try {
+    const snap = JSON.parse(fs.readFileSync(file, 'utf-8'));
+    if (!isValidSnapshot(snap)) return res.status(400).json({ error: 'That backup file is not valid' });
+    res.json({ counts: summarizeSnapshot(snap, readDb(), { requests: readRequests(), barcodes: readBarcodeCache() }) });
+  } catch (e) {
+    res.status(400).json({ error: 'That backup file is not valid' });
+  }
+});
+
 app.post('/api/backups/:name/restore', requireAdmin, (req: Request, res: Response) => {
   const name = String(req.params.name);
   const file = path.join(BACKUP_DIR, name);
@@ -884,6 +897,11 @@ app.post('/api/import', requireAdmin, (req: Request, res: Response) => {
     console.error('Import failed:', e);
     res.status(500).json({ error: 'Could not import that file' });
   }
+});
+
+app.post('/api/import/preview', requireAdmin, (req: Request, res: Response) => {
+  if (!isValidSnapshot(req.body)) return res.status(400).json({ error: "That file isn't a PantryPal export" });
+  res.json({ counts: summarizeSnapshot(req.body, readDb(), { requests: readRequests(), barcodes: readBarcodeCache() }) });
 });
 
 // --- Calendar feed of the meal plan ------------------------------------------

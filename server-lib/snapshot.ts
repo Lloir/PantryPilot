@@ -53,9 +53,11 @@ const recordValidators: Record<typeof LIST_KEYS[number], (value: unknown) => boo
 
 export function isValidSnapshot(snap: unknown): boolean {
   if (!isObject(snap) || snap.app !== 'pantrypal' || !isObject(snap.pantry)) return false;
+  const version = snap.version === undefined ? 1 : snap.version;
+  if (version !== 1 && version !== 2) return false;
   const pantry = snap.pantry;
   if (!LIST_KEYS.every(key =>
-    pantry[key] === undefined ||
+    (version === 1 && pantry[key] === undefined) ||
     (Array.isArray(pantry[key]) && pantry[key].every(record => recordValidators[key](record)))
   )) return false;
   if (pantry.settings !== undefined && pantry.settings !== null && !isObject(pantry.settings)) return false;
@@ -67,4 +69,24 @@ export function isValidSnapshot(snap: unknown): boolean {
   ))) return false;
   if (snap.barcodes !== undefined && !isObject(snap.barcodes)) return false;
   return true;
+}
+
+export function summarizeSnapshot(
+  snapshot: any,
+  current: any,
+  extras: { requests?: unknown[]; barcodes?: Record<string, unknown> } = {}
+): Record<string, { incoming: number | null; current: number }> {
+  const counts: Record<string, { incoming: number | null; current: number }> = Object.fromEntries(LIST_KEYS.map(key => [
+    key,
+    {
+      incoming: Array.isArray(snapshot.pantry[key]) ? snapshot.pantry[key].length : null,
+      current: Array.isArray(current?.[key]) ? current[key].length : 0,
+    },
+  ]));
+  return {
+    ...counts,
+    settings: { incoming: snapshot.pantry.settings === undefined ? null : Number(snapshot.pantry.settings !== null), current: Number(current?.settings != null) },
+    requests: { incoming: Array.isArray(snapshot.requests) ? snapshot.requests.length : null, current: extras.requests?.length ?? 0 },
+    barcodes: { incoming: isObject(snapshot.barcodes) ? Object.keys(snapshot.barcodes).length : null, current: Object.keys(extras.barcodes ?? {}).length },
+  };
 }

@@ -155,6 +155,7 @@ export async function parseRecipeTextApi(text: string): Promise<{ recipe: Import
 
 // --- Backups, calendar link and alerts ---------------------------------------
 export interface BackupInfo { name: string; size: number; createdAt: string; kind: string }
+export type SnapshotPreview = Record<string, { incoming: number | null; current: number }>;
 
 export async function fetchBackupsApi(): Promise<BackupInfo[]> {
   return (await jsonOrThrow<{ backups: BackupInfo[] }>(await fetch('/api/backups'), 'Could not load backups')).backups;
@@ -165,8 +166,16 @@ export async function createBackupApi(): Promise<void> {
 export async function restoreBackupApi(name: string): Promise<void> {
   await jsonOrThrow(await fetch(`/api/backups/${encodeURIComponent(name)}/restore`, jsonInit('POST')), 'Could not restore the backup');
 }
+export async function previewBackupApi(name: string): Promise<SnapshotPreview> {
+  return (await jsonOrThrow<{ counts: SnapshotPreview }>(
+    await fetch(`/api/backups/${encodeURIComponent(name)}/preview`), 'Could not preview the backup')).counts;
+}
 export async function importSnapshotApi(snapshot: unknown): Promise<void> {
   await jsonOrThrow(await fetch('/api/import', jsonInit('POST', snapshot)), 'Could not import that file');
+}
+export async function previewSnapshotApi(snapshot: unknown): Promise<SnapshotPreview> {
+  return (await jsonOrThrow<{ counts: SnapshotPreview }>(
+    await fetch('/api/import/preview', jsonInit('POST', snapshot)), 'Could not preview that file')).counts;
 }
 
 export async function fetchCalendarLinkApi(): Promise<string> {
