@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -218,6 +219,22 @@ const secureRequest = (req: Request) =>
 const failedLogins = new Map<string, { count: number; first: number }>();
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_FAILS = 8;
+const loginRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  identifier: 'auth-login',
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Try again in a minute.' },
+});
+const passwordChangeRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 30,
+  identifier: 'password-change',
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many password changes. Try again in a minute.' },
+});
 const pruneFailedLogins = (now: number) => {
   for (const [key, attempt] of failedLogins) {
     if (now - attempt.first > WINDOW_MS) failedLogins.delete(key);
@@ -237,7 +254,7 @@ app.get('/api/auth/me', (req: Request, res: Response) => {
   res.json({ authEnabled: true, authenticated: Boolean(auth), user: auth?.user ?? null, role: auth?.role ?? null });
 });
 
-app.post('/api/auth/login', (req: Request, res: Response) => {
+app.post('/api/auth/login', loginRateLimit, (req: Request, res: Response) => {
   if (!AUTH_ENABLED) return res.json({ authenticated: true });
   const ip = req.ip || 'unknown';
   const now = Date.now();
@@ -286,22 +303,31 @@ const requireAdmin = (_req: Request, res: Response, next: () => void) => {
   next();
 };
 
-const adminOperationLimits = new Map<string, { count: number; resetAt: number }>();
-const limitAdminOperation = (operation: string) => (req: Request, res: Response, next: () => void) => {
-  const now = Date.now();
-  for (const [key, limit] of adminOperationLimits) {
-    if (limit.resetAt <= now) adminOperationLimits.delete(key);
-  }
-  const key = `${operation}:${req.ip || 'unknown'}:${authOf(res).user}`;
-  const limit = adminOperationLimits.get(key);
-  if (limit && limit.count >= 10) {
-    res.setHeader('Retry-After', String(Math.max(1, Math.ceil((limit.resetAt - now) / 1000))));
-    return res.status(429).json({ error: 'Too many requests. Try again in a minute.' });
-  }
-  if (limit) limit.count++;
-  else adminOperationLimits.set(key, { count: 1, resetAt: now + 60_000 });
-  next();
-};
+const backupCreateRateLimit = rateLimit({
+  windowMs: 60_000, limit: 10, identifier: 'backup-create',
+  standardHeaders: 'draft-8', legacyHeaders: false,
+  message: { error: 'Too many requests. Try again in a minute.' },
+});
+const backupPreviewRateLimit = rateLimit({
+  windowMs: 60_000, limit: 10, identifier: 'backup-preview',
+  standardHeaders: 'draft-8', legacyHeaders: false,
+  message: { error: 'Too many requests. Try again in a minute.' },
+});
+const backupRestoreRateLimit = rateLimit({
+  windowMs: 60_000, limit: 10, identifier: 'backup-restore',
+  standardHeaders: 'draft-8', legacyHeaders: false,
+  message: { error: 'Too many requests. Try again in a minute.' },
+});
+const importRateLimit = rateLimit({
+  windowMs: 60_000, limit: 10, identifier: 'import',
+  standardHeaders: 'draft-8', legacyHeaders: false,
+  message: { error: 'Too many requests. Try again in a minute.' },
+});
+const importPreviewRateLimit = rateLimit({
+  windowMs: 60_000, limit: 10, identifier: 'import-preview',
+  standardHeaders: 'draft-8', legacyHeaders: false,
+  message: { error: 'Too many requests. Try again in a minute.' },
+});
 
 // AI calls cost money and only matter to people who can edit, so view-only members are kept out
 app.use(['/api/scan-receipt', '/api/suggest-recipes', '/api/barcode-lookup', '/api/barcode-save', '/api/import-recipe', '/api/parse-recipe-text'], (_req: Request, res: Response, next) => {
@@ -374,7 +400,7 @@ app.delete('/api/users/:name', requireAdmin, (req: Request, res: Response) => {
 });
 
 // Change your own password
-app.post('/api/me/password', (req: Request, res: Response) => {
+app.post('/api/me/password', passwordChangeRateLimit, (req: Request, res: Response) => {
   const auth = authOf(res);
   const attemptKey = `password:${auth.user}`;
   const now = Date.now();
@@ -862,7 +888,7 @@ app.get('/api/backups', requireAdmin, (_req: Request, res: Response) => {
   }
 });
 
-app.post('/api/backups', requireAdmin, limitAdminOperation('backup-create'), (_req: Request, res: Response) => {
+app.post('/api/backups', requireAdmin, backupCreateRateLimit, (_req: Request, res: Response) => {
   try {
     res.json({ name: writeBackup('manual') });
   } catch (e) {
@@ -877,7 +903,7 @@ app.get('/api/backups/:name', requireAdmin, (req: Request, res: Response) => {
   res.download(file, name);
 });
 
-app.get('/api/backups/:name/preview', requireAdmin, limitAdminOperation('backup-preview'), (req: Request, res: Response) => {
+app.get('/api/backups/:name/preview', requireAdmin, backupPreviewRateLimit, (req: Request, res: Response) => {
   const name = String(req.params.name);
   const file = path.join(BACKUP_DIR, name);
   if (!BACKUP_NAME_RE.test(name) || !fs.existsSync(file)) return res.status(404).json({ error: 'No such backup' });
@@ -890,7 +916,7 @@ app.get('/api/backups/:name/preview', requireAdmin, limitAdminOperation('backup-
   }
 });
 
-app.post('/api/backups/:name/restore', requireAdmin, limitAdminOperation('backup-restore'), (req: Request, res: Response) => {
+app.post('/api/backups/:name/restore', requireAdmin, backupRestoreRateLimit, (req: Request, res: Response) => {
   const name = String(req.params.name);
   const file = path.join(BACKUP_DIR, name);
   if (!BACKUP_NAME_RE.test(name) || !fs.existsSync(file)) return res.status(404).json({ error: 'No such backup' });
@@ -905,7 +931,7 @@ app.post('/api/backups/:name/restore', requireAdmin, limitAdminOperation('backup
   }
 });
 
-app.post('/api/import', requireAdmin, limitAdminOperation('import'), (req: Request, res: Response) => {
+app.post('/api/import', requireAdmin, importRateLimit, (req: Request, res: Response) => {
   if (!isValidSnapshot(req.body)) return res.status(400).json({ error: "That file isn't a PantryPal export" });
   try {
     restoreSnapshot(req.body, authOf(res).user);
@@ -916,7 +942,7 @@ app.post('/api/import', requireAdmin, limitAdminOperation('import'), (req: Reque
   }
 });
 
-app.post('/api/import/preview', requireAdmin, limitAdminOperation('import-preview'), (req: Request, res: Response) => {
+app.post('/api/import/preview', requireAdmin, importPreviewRateLimit, (req: Request, res: Response) => {
   if (!isValidSnapshot(req.body)) return res.status(400).json({ error: "That file isn't a PantryPal export" });
   res.json({ counts: summarizeSnapshot(req.body, readDb(), { requests: readRequests(), barcodes: readBarcodeCache() }) });
 });

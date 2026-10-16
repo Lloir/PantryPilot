@@ -6,7 +6,7 @@
 - User passwords are now stored as scrypt hashes. Existing plaintext `users.txt` entries remain valid and are converted after each user's next successful login.
 - Added standard browser security headers and secure session cookies on HTTPS. `TRUST_PROXY` can be set for trusted reverse proxies; it is off by default.
 - Recipe URL imports now reject non-public IPv4/IPv6 addresses at every redirect and stop after five redirects. Gemini and exception details are logged server-side instead of returned to clients.
-- Backup and import preview/restore operations are rate-limited per admin and client IP.
+- Login, password-change, backup, and import operations now have request-rate limits in addition to failed-password throttling.
 
 ### Changed
 - Docker now uses frozen Bun installs and the package start command, and its health checks no longer require curl.
