@@ -1,5 +1,6 @@
 import { InventoryItem, PlannedMeal, ShoppingItem, ItemCategory } from '../types';
 import { findMatchingInventoryItem, normalizeQuantity } from './costCalculator';
+import { canonicalUnit } from './units';
 
 export interface DepletionEvent {
   itemId: string;
@@ -74,18 +75,30 @@ export function forecastInventoryDeductions(
 
     meals.forEach(meal => {
       meal.ingredients.forEach(ing => {
-        // Find matching inventory item in our simulated stock
-        const matchedEntry = Object.values(simulatedStock).find(s => {
-          const invName = s.item.name.toLowerCase();
-          const targetName = ing.name.toLowerCase();
-          return invName.includes(targetName) || targetName.includes(invName);
-        });
+        const matchedItem = findMatchingInventoryItem(ing.name, inventory);
+        const matchedEntry = matchedItem ? simulatedStock[matchedItem.id] : undefined;
 
         if (matchedEntry) {
-          const matchedItem = matchedEntry.item;
-          const convertedNeeded = normalizeQuantity(ing.quantity, ing.unit, matchedItem.unit);
-          const neededInStockUnit = convertedNeeded !== null ? convertedNeeded : ing.quantity;
-
+          const item = matchedEntry.item;
+          const convertedNeeded = normalizeQuantity(ing.quantity, ing.unit, item.unit);
+          if (convertedNeeded === null) {
+            const depEvent: DepletionEvent = {
+              itemId: `missing-${ing.name}`,
+              itemName: ing.name,
+              category: item.category,
+              date: dateStr,
+              mealName: meal.customName || 'Planned Meal',
+              slot: meal.slot,
+              deficitQuantity: ing.quantity,
+              unit: ing.unit,
+              initialStock: 0,
+              finalRemaining: -ing.quantity
+            };
+            dayDepletions.push(depEvent);
+            allDepletions.push(depEvent);
+            return;
+          }
+          const neededInStockUnit = convertedNeeded;
           const previousQty = matchedEntry.currentQty;
           matchedEntry.currentQty = Number((matchedEntry.currentQty - neededInStockUnit).toFixed(2));
 
@@ -94,33 +107,33 @@ export function forecastInventoryDeductions(
           if (previousQty > 0 && isDepleted) {
             const deficit = Math.abs(matchedEntry.currentQty);
             const depEvent: DepletionEvent = {
-              itemId: matchedItem.id,
-              itemName: matchedItem.name,
-              category: matchedItem.category,
+              itemId: item.id,
+              itemName: item.name,
+              category: item.category,
               date: dateStr,
               mealName: meal.customName || 'Planned Meal',
               slot: meal.slot,
               deficitQuantity: Number(deficit.toFixed(2)),
-              unit: matchedItem.unit,
-              initialStock: matchedItem.quantity,
+              unit: item.unit,
+              initialStock: item.quantity,
               finalRemaining: matchedEntry.currentQty
             };
             dayDepletions.push(depEvent);
             allDepletions.push(depEvent);
           }
 
-          if (!dayItemsUsedMap[matchedItem.id]) {
-            dayItemsUsedMap[matchedItem.id] = {
-              itemName: matchedItem.name,
+          if (!dayItemsUsedMap[item.id]) {
+            dayItemsUsedMap[item.id] = {
+              itemName: item.name,
               quantityUsed: 0,
-              unit: matchedItem.unit,
+              unit: item.unit,
               remainingAfterDay: matchedEntry.currentQty,
               depleted: matchedEntry.currentQty <= 0
             };
           }
-          dayItemsUsedMap[matchedItem.id].quantityUsed += neededInStockUnit;
-          dayItemsUsedMap[matchedItem.id].remainingAfterDay = matchedEntry.currentQty;
-          dayItemsUsedMap[matchedItem.id].depleted = matchedEntry.currentQty <= 0;
+          dayItemsUsedMap[item.id].quantityUsed += neededInStockUnit;
+          dayItemsUsedMap[item.id].remainingAfterDay = matchedEntry.currentQty;
+          dayItemsUsedMap[item.id].depleted = matchedEntry.currentQty <= 0;
         } else {
           // Item not even in inventory at all!
           const depEvent: DepletionEvent = {
@@ -174,7 +187,7 @@ export function generateShoppingListFromMealPlan(
   inventory: InventoryItem[],
   plannedMeals: PlannedMeal[]
 ): ShoppingItem[] {
-  // Aggregate total required quantities by ingredient name
+  // Aggregate compatible quantities by ingredient name and unit.
   interface NeededAgg {
     name: string;
     totalRequired: number;
@@ -187,13 +200,25 @@ export function generateShoppingListFromMealPlan(
 
   plannedMeals.forEach(meal => {
     meal.ingredients.forEach(ing => {
-      const key = ing.name.toLowerCase().trim();
-      if (!neededMap[key]) {
+      const nameKey = ing.name.toLowerCase().trim();
+      let key = nameKey;
+      let existing = neededMap[key];
+      if (existing) {
+        const converted = normalizeQuantity(ing.quantity, ing.unit, existing.unit);
+        if (converted !== null) {
+          existing.totalRequired += converted;
+          existing.neededForMeals.push({ mealName: meal.customName || 'Planned Meal', date: meal.date });
+          return;
+        }
+        key = `${nameKey}\u0000${canonicalUnit(ing.unit) || ing.unit.toLowerCase().trim()}`;
+        existing = neededMap[key];
+      }
+      if (!existing) {
         // Try finding category from inventory if available
         const match = findMatchingInventoryItem(ing.name, inventory);
         const category = match ? match.category : guessCategory(ing.name);
 
-        neededMap[key] = {
+        existing = neededMap[key] = {
           name: ing.name,
           totalRequired: 0,
           unit: ing.unit,
@@ -201,8 +226,8 @@ export function generateShoppingListFromMealPlan(
           neededForMeals: []
         };
       }
-      neededMap[key].totalRequired += ing.quantity;
-      neededMap[key].neededForMeals.push({
+      existing.totalRequired += ing.quantity;
+      existing.neededForMeals.push({
         mealName: meal.customName || 'Planned Meal',
         date: meal.date
       });
@@ -232,7 +257,21 @@ export function generateShoppingListFromMealPlan(
     } else {
       // In inventory: check if total required exceeds current stock
       const convertedNeeded = normalizeQuantity(needed.totalRequired, needed.unit, matchedItem.unit);
-      const neededInStockUnit = convertedNeeded !== null ? convertedNeeded : needed.totalRequired;
+      if (convertedNeeded === null) {
+        const mealList = Array.from(new Set(needed.neededForMeals.map(m => m.mealName))).join(', ');
+        shoppingItems.push({
+          id: `shop-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          name: needed.name,
+          category: matchedItem.category,
+          quantity: Math.ceil(needed.totalRequired * 10) / 10,
+          unit: needed.unit,
+          checked: false,
+          reason: `Could not compare ${matchedItem.unit} in stock with ${needed.unit} needed for: ${mealList}`,
+          plannedDate: needed.neededForMeals[0]?.date
+        });
+        return;
+      }
+      const neededInStockUnit = convertedNeeded;
 
       if (matchedItem.quantity < neededInStockUnit) {
         const deficit = Number((neededInStockUnit - matchedItem.quantity).toFixed(2));

@@ -215,6 +215,7 @@ export default function App() {
   const revisionRef = useRef(0);
   const lastSyncedRef = useRef<SyncedState | null>(null);
   const savingRef = useRef(false);
+  const queuedSaveRef = useRef(false);
   const latestRef = useRef<SyncedState>({ inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings });
   latestRef.current = { inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings };
 
@@ -342,7 +343,10 @@ export default function App() {
   }, [hydrated]);
 
   const saveToServer = async () => {
-    if (savingRef.current) return;
+    if (savingRef.current) {
+      queuedSaveRef.current = true;
+      return;
+    }
     savingRef.current = true;
     const snap = latestRef.current;
     try {
@@ -371,6 +375,10 @@ export default function App() {
       // offline: the next change tries again
     } finally {
       savingRef.current = false;
+      if (queuedSaveRef.current) {
+        queuedSaveRef.current = false;
+        if (hasUnsavedChanges()) setTimeout(() => void saveToServer(), 0);
+      }
     }
   };
 

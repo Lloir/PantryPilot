@@ -22,7 +22,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 /** Escapes text per RFC 5545. */
 export const icsEscape = (s: string) =>
-  s.replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+  s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
 
 /** Folds a content line to 75 octets, continuing with a leading space. */
 export function foldLine(line: string): string {

@@ -6,11 +6,14 @@ import { summarizePrices, pricePointsFor } from '../src/utils/priceHistory';
 import { allergensFromName, itemAllergens, avoidedIn } from '../src/utils/allergens';
 import { estimateRecipeNutrition } from '../src/utils/nutrition';
 import { mergeStates } from '../src/utils/syncMerge';
-import { buildIcs, foldLine } from '../server-lib/ics';
+import { buildIcs, foldLine, icsEscape } from '../server-lib/ics';
 import { extractRecipeFromHtml, isoDurationToMinutes, isPrivateAddress, assertPublicUrl } from '../server-lib/recipeExtract';
 import { buildDigest } from '../server-lib/notify';
 import { csvCell } from '../server-lib/csv';
 import { hashPassword, isPasswordHash, verifyPassword } from '../server-lib/passwords';
+import { isValidSnapshot } from '../server-lib/snapshot';
+import { calculateRecipeCostAndMatch, findMatchingInventoryItem } from '../src/utils/costCalculator';
+import { forecastInventoryDeductions, generateShoppingListFromMealPlan } from '../src/utils/inventoryForecaster';
 
 let failed = 0;
 const eq = (actual: unknown, expected: unknown, name: string) => {
@@ -81,7 +84,8 @@ eq(mergeStates(baseS as any, mine as any, theirs as any).shoppingList.map((i: an
 // calendar
 const ics = buildIcs([{ id: 'a1', date: '2026-10-12', slot: 'Dinner', customName: 'Mac & Cheese, "classic"; yum', servings: 2 }], new Date('2026-10-09T10:00:00Z'));
 eq(ics.includes('DTSTART:20261012T180000'), true, 'ics dinner time');
-eq(ics.includes('Cheese\\, "classic"\; yum'), true, 'ics escaping');
+eq(ics.includes('Cheese\\, "classic"\\; yum'), true, 'ics escaping');
+eq(icsEscape('a\\b;c,d\ne'), 'a\\\\b\\;c\\,d\\ne', 'ics escaping backslash, semicolon, comma and newline');
 eq(ics.split('\r\n').every(l => Buffer.byteLength(l) <= 75), true, 'ics lines folded');
 eq(foldLine('X'.repeat(200)).split('\r\n').every(l => l.length <= 75), true, 'fold long line');
 
@@ -110,6 +114,40 @@ eq(isPasswordHash(passwordHash), true, 'password is stored as scrypt');
 eq(verifyPassword(legacyPassword, passwordHash), true, 'scrypt password verifies');
 eq(verifyPassword('wrong-password', passwordHash), false, 'wrong scrypt password rejected');
 eq(verifyPassword(legacyPassword, 'scrypt$broken'), false, 'malformed scrypt hash rejected');
+
+// recipe matching and compatible stock calculations
+const recipeInventory: any[] = [
+  { ...base({ name: 'Chicken Breast', quantity: 8, unit: 'oz', unitPrice: 0.5 }), id: 'chicken' },
+  { ...base({ name: 'Black Bean Soup', quantity: 2, unit: 'can', unitPrice: 3 }), id: 'soup' },
+];
+eq(findMatchingInventoryItem('chicken breast', recipeInventory)?.id, 'chicken', 'normalized exact ingredient match');
+eq(findMatchingInventoryItem('chick', recipeInventory), undefined, 'partial words do not match pantry items');
+eq(findMatchingInventoryItem('black beans', recipeInventory), undefined, 'ingredient does not match a different prepared food');
+eq(findMatchingInventoryItem('egg', [{ ...recipeInventory[0], name: 'Eggs' }])?.name, 'Eggs', 'singular and plural ingredient names match');
+eq(findMatchingInventoryItem('chicken', [...recipeInventory, { ...recipeInventory[0], id: 'thighs', name: 'Chicken Thighs' }]), undefined, 'ambiguous ingredient matches are not guessed');
+const incompatibleRecipe: any = {
+  id: 'r', name: 'Test', servings: 1,
+  ingredients: [{ name: 'Chicken Breast', quantity: 1, unit: 'cup' }],
+};
+const incompatibleCost = calculateRecipeCostAndMatch(incompatibleRecipe, recipeInventory);
+eq([incompatibleCost.canMakeNow, incompatibleCost.inStockCount, incompatibleCost.missingCount], [false, 0, 1], 'incompatible stock units are not counted as available');
+const planned: any[] = [{
+  id: 'meal', date: '2026-10-16', slot: 'Dinner', servings: 1, customName: 'Dinner',
+  ingredients: [{ name: 'Chicken Breast', quantity: 1, unit: 'cup' }],
+}];
+eq(forecastInventoryDeductions(recipeInventory, planned).allDepletions[0]?.deficitQuantity, 1, 'forecast does not deduct incompatible units');
+eq(generateShoppingListFromMealPlan(recipeInventory, planned)[0]?.quantity, 1, 'shopping list requests full quantity for incompatible units');
+const compatiblePlans: any[] = [
+  { ...planned[0], ingredients: [{ name: 'Rice', quantity: 1, unit: 'lb' }] },
+  { ...planned[0], ingredients: [{ name: 'rice', quantity: 8, unit: 'oz' }] },
+];
+eq(generateShoppingListFromMealPlan([], compatiblePlans)[0]?.quantity, 1.5, 'shopping aggregation converts compatible units');
+
+// import and restore validation
+const validExport = { app: 'pantrypal', pantry: { inventory: [{ id: 'i', name: 'Milk', category: 'Dairy & Eggs', quantity: 1, unit: 'l', unitPrice: 2, totalCost: 2 }] } };
+eq(isValidSnapshot(validExport), true, 'valid backup snapshot');
+eq(isValidSnapshot({ ...validExport, pantry: { ...validExport.pantry, inventory: [{ id: 'i', name: 'Milk', quantity: '1' }] } }), false, 'malformed inventory rejected in snapshot');
+eq(isValidSnapshot({ ...validExport, requests: [null] }), false, 'malformed request rejected in snapshot');
 
 // daily alert and csv
 const dg = buildDigest({ today: '2026-10-09', daysAhead: 3, inventory: [{ name: 'Chicken', quantity: 2, unit: 'lb', expirationDate: '2026-10-10' }, { name: 'Rice', quantity: 1, unit: 'lb', expirationDate: '2027-01-01', parLevel: 3 }, { name: 'Gone', quantity: 0, unit: 'lb', expirationDate: '2026-10-01' }], plannedMeals: [{ date: '2026-10-09', slot: 'Dinner', customName: 'Stew' }] });

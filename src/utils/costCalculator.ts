@@ -11,25 +11,39 @@ export function normalizeQuantity(quantity: number, fromUnit: string, toUnit: st
  * Finds an inventory item matching a recipe ingredient name
  */
 export function findMatchingInventoryItem(ingredientName: string, inventory: InventoryItem[]): InventoryItem | undefined {
-  const cleanName = ingredientName.toLowerCase().trim();
-
-  // 1. Exact match
-  const exact = inventory.find(i => i.name.toLowerCase().trim() === cleanName);
-  if (exact) return exact;
-
-  // 2. Contains match
-  const partial = inventory.find(i => {
-    const invName = i.name.toLowerCase();
-    return invName.includes(cleanName) || cleanName.includes(invName);
+  const normalizeToken = (token: string) => {
+    if (token.length > 4 && token.endsWith('ies')) return `${token.slice(0, -3)}y`;
+    if (token.length > 4 && token.endsWith('oes')) return token.slice(0, -2);
+    if (token.length > 3 && token.endsWith('s') && !token.endsWith('ss') && !token.endsWith('us')) return token.slice(0, -1);
+    return token;
+  };
+  const tokensFor = (name: string) => name
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(token => token && !['organic', 'fresh', 'large', 'small', 'canned', 'sliced', 'chopped', 'diced', 'boneless', 'skinless'].includes(token));
+  const tokens = new Set(tokensFor(ingredientName).map(normalizeToken));
+  if (!tokens.size) return undefined;
+  const exactMatches = inventory.filter(i => {
+    const itemTokens = tokensFor(i.name).map(normalizeToken);
+    return itemTokens.length === tokens.size && itemTokens.every(token => tokens.has(token));
   });
-  if (partial) return partial;
+  if (exactMatches.length === 1) return exactMatches[0];
+  if (exactMatches.length > 1) return undefined;
 
-  // 3. Keyword token match
-  const tokens = cleanName.split(/\s+/).filter(w => w.length > 2 && !['organic', 'fresh', 'large', 'small', 'canned', 'sliced'].includes(w));
-  return inventory.find(i => {
-    const invName = i.name.toLowerCase();
-    return tokens.some(token => invName.includes(token));
-  });
+  const matches = inventory.flatMap(item => {
+    const itemTokens = new Set(tokensFor(item.name).map(normalizeToken));
+    if (!itemTokens.size) return [];
+    const smaller = tokens.size <= itemTokens.size ? tokens : itemTokens;
+    const larger = tokens.size <= itemTokens.size ? itemTokens : tokens;
+    if (![...smaller].every(token => larger.has(token))) return [];
+    const extras = [...larger].filter(token => !smaller.has(token));
+    if (extras.some(token => ['soup', 'sauce', 'stock', 'broth', 'powder', 'extract', 'juice'].includes(token))) return [];
+    return [{ item, score: smaller.size / larger.size }];
+  }).sort((a, b) => b.score - a.score);
+  if (!matches.length || (matches.length > 1 && matches[0].score === matches[1].score)) return undefined;
+  return matches[0].item;
 }
 
 export interface IngredientCostDetail {
@@ -100,7 +114,23 @@ export function calculateRecipeCostAndMatch(
 
     // Item found in inventory
     const convertedNeeded = normalizeQuantity(requiredQty, ing.unit, matchedItem.unit);
-    const neededInStockUnit = convertedNeeded !== null ? convertedNeeded : requiredQty;
+    if (convertedNeeded === null) {
+      missingCount++;
+      const estimatedCost = ing.estimatedCost ? ing.estimatedCost * servingRatio : 1.50 * servingRatio;
+      totalCost += estimatedCost;
+      return {
+        ingredient: ing,
+        matchedItem,
+        inStock: false,
+        stockQuantity: matchedItem.quantity,
+        stockUnit: matchedItem.unit,
+        hasEnoughQuantity: false,
+        requiredQuantity: requiredQty,
+        cost: estimatedCost,
+        isExpiringSoon: false
+      };
+    }
+    const neededInStockUnit = convertedNeeded;
     const hasEnough = matchedItem.quantity >= neededInStockUnit;
 
     if (hasEnough) {

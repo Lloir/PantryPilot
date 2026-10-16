@@ -14,6 +14,7 @@ import { inventoryCsv } from './server-lib/csv';
 import { buildDigest } from './server-lib/notify';
 import { extractRecipeFromHtml, fetchPublicHtml, htmlToText } from './server-lib/recipeExtract';
 import { hashPassword, isPasswordHash, verifyPassword } from './server-lib/passwords';
+import { isValidSnapshot } from './server-lib/snapshot';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -804,13 +805,6 @@ function ensureDailyBackup() {
   }
 }
 
-function validSnapshot(snap: any): boolean {
-  return Boolean(
-    snap && snap.app === 'pantrypal' && snap.pantry && typeof snap.pantry === 'object' &&
-    LIST_KEYS.every(k => snap.pantry[k] === undefined || Array.isArray(snap.pantry[k]))
-  );
-}
-
 function restoreSnapshot(snap: any, by: string) {
   writeBackup('before-restore');
   const current = readDb();
@@ -872,7 +866,7 @@ app.post('/api/backups/:name/restore', requireAdmin, (req: Request, res: Respons
   if (!BACKUP_NAME_RE.test(name) || !fs.existsSync(file)) return res.status(404).json({ error: 'No such backup' });
   try {
     const snap = JSON.parse(fs.readFileSync(file, 'utf-8'));
-    if (!validSnapshot(snap)) return res.status(400).json({ error: 'That backup file is not valid' });
+    if (!isValidSnapshot(snap)) return res.status(400).json({ error: 'That backup file is not valid' });
     restoreSnapshot(snap, authOf(res).user);
     res.json({ success: true });
   } catch (e) {
@@ -882,7 +876,7 @@ app.post('/api/backups/:name/restore', requireAdmin, (req: Request, res: Respons
 });
 
 app.post('/api/import', requireAdmin, (req: Request, res: Response) => {
-  if (!validSnapshot(req.body)) return res.status(400).json({ error: "That file isn't a PantryPal export" });
+  if (!isValidSnapshot(req.body)) return res.status(400).json({ error: "That file isn't a PantryPal export" });
   try {
     restoreSnapshot(req.body, authOf(res).user);
     res.json({ success: true });
