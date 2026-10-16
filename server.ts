@@ -308,6 +308,16 @@ const backupCreateRateLimit = rateLimit({
   standardHeaders: 'draft-8', legacyHeaders: false,
   message: { error: 'Too many requests. Try again in a minute.' },
 });
+const backupListRateLimit = rateLimit({
+  windowMs: 60_000, limit: 30, identifier: 'backup-list',
+  standardHeaders: 'draft-8', legacyHeaders: false,
+  message: { error: 'Too many requests. Try again in a minute.' },
+});
+const backupDownloadRateLimit = rateLimit({
+  windowMs: 60_000, limit: 30, identifier: 'backup-download',
+  standardHeaders: 'draft-8', legacyHeaders: false,
+  message: { error: 'Too many requests. Try again in a minute.' },
+});
 const backupPreviewRateLimit = rateLimit({
   windowMs: 60_000, limit: 10, identifier: 'backup-preview',
   standardHeaders: 'draft-8', legacyHeaders: false,
@@ -875,7 +885,7 @@ app.get('/api/export/inventory.csv', (_req: Request, res: Response) => {
   res.send('﻿' + inventoryCsv(readDb()?.inventory ?? []));
 });
 
-app.get('/api/backups', requireAdmin, (_req: Request, res: Response) => {
+app.get('/api/backups', backupListRateLimit, requireAdmin, (_req: Request, res: Response) => {
   try {
     const files = fs.existsSync(BACKUP_DIR) ? fs.readdirSync(BACKUP_DIR).filter(f => BACKUP_NAME_RE.test(f)) : [];
     const list = files.map(name => {
@@ -888,7 +898,7 @@ app.get('/api/backups', requireAdmin, (_req: Request, res: Response) => {
   }
 });
 
-app.post('/api/backups', requireAdmin, backupCreateRateLimit, (_req: Request, res: Response) => {
+app.post('/api/backups', backupCreateRateLimit, requireAdmin, (_req: Request, res: Response) => {
   try {
     res.json({ name: writeBackup('manual') });
   } catch (e) {
@@ -896,14 +906,14 @@ app.post('/api/backups', requireAdmin, backupCreateRateLimit, (_req: Request, re
   }
 });
 
-app.get('/api/backups/:name', requireAdmin, (req: Request, res: Response) => {
+app.get('/api/backups/:name', backupDownloadRateLimit, requireAdmin, (req: Request, res: Response) => {
   const name = String(req.params.name);
   const file = path.join(BACKUP_DIR, name);
   if (!BACKUP_NAME_RE.test(name) || !fs.existsSync(file)) return res.status(404).json({ error: 'No such backup' });
   res.download(file, name);
 });
 
-app.get('/api/backups/:name/preview', requireAdmin, backupPreviewRateLimit, (req: Request, res: Response) => {
+app.get('/api/backups/:name/preview', backupPreviewRateLimit, requireAdmin, (req: Request, res: Response) => {
   const name = String(req.params.name);
   const file = path.join(BACKUP_DIR, name);
   if (!BACKUP_NAME_RE.test(name) || !fs.existsSync(file)) return res.status(404).json({ error: 'No such backup' });
@@ -916,7 +926,7 @@ app.get('/api/backups/:name/preview', requireAdmin, backupPreviewRateLimit, (req
   }
 });
 
-app.post('/api/backups/:name/restore', requireAdmin, backupRestoreRateLimit, (req: Request, res: Response) => {
+app.post('/api/backups/:name/restore', backupRestoreRateLimit, requireAdmin, (req: Request, res: Response) => {
   const name = String(req.params.name);
   const file = path.join(BACKUP_DIR, name);
   if (!BACKUP_NAME_RE.test(name) || !fs.existsSync(file)) return res.status(404).json({ error: 'No such backup' });
@@ -931,7 +941,7 @@ app.post('/api/backups/:name/restore', requireAdmin, backupRestoreRateLimit, (re
   }
 });
 
-app.post('/api/import', requireAdmin, importRateLimit, (req: Request, res: Response) => {
+app.post('/api/import', importRateLimit, requireAdmin, (req: Request, res: Response) => {
   if (!isValidSnapshot(req.body)) return res.status(400).json({ error: "That file isn't a PantryPal export" });
   try {
     restoreSnapshot(req.body, authOf(res).user);
@@ -942,7 +952,7 @@ app.post('/api/import', requireAdmin, importRateLimit, (req: Request, res: Respo
   }
 });
 
-app.post('/api/import/preview', requireAdmin, importPreviewRateLimit, (req: Request, res: Response) => {
+app.post('/api/import/preview', importPreviewRateLimit, requireAdmin, (req: Request, res: Response) => {
   if (!isValidSnapshot(req.body)) return res.status(400).json({ error: "That file isn't a PantryPal export" });
   res.json({ counts: summarizeSnapshot(req.body, readDb(), { requests: readRequests(), barcodes: readBarcodeCache() }) });
 });
