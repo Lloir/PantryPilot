@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 const SCRYPT_COST = 16_384;
 const SCRYPT_KEY_LENGTH = 64;
 const SCRYPT_MAX_COST = 65_536;
+const LEGACY_VERIFY_SALT = crypto.randomBytes(16);
 
 export function isPasswordHash(value: string): boolean {
   return value.startsWith('scrypt$');
@@ -16,8 +17,8 @@ export function hashPassword(password: string): string {
 
 export function verifyPassword(password: string, stored: string): boolean {
   if (!isPasswordHash(stored)) {
-    const actual = crypto.createHash('sha256').update(password).digest();
-    const expected = crypto.createHash('sha256').update(stored).digest();
+    const actual = crypto.scryptSync(password, LEGACY_VERIFY_SALT, SCRYPT_KEY_LENGTH, { N: SCRYPT_COST });
+    const expected = crypto.scryptSync(stored, LEGACY_VERIFY_SALT, SCRYPT_KEY_LENGTH, { N: SCRYPT_COST });
     return crypto.timingSafeEqual(actual, expected);
   }
 

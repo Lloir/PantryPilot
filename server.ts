@@ -217,6 +217,11 @@ const secureRequest = (req: Request) =>
 const failedLogins = new Map<string, { count: number; first: number }>();
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_FAILS = 8;
+const pruneFailedLogins = (now: number) => {
+  for (const [key, attempt] of failedLogins) {
+    if (now - attempt.first > WINDOW_MS) failedLogins.delete(key);
+  }
+};
 
 if (AUTH_ENABLED) {
   ensureUsersFile();
@@ -235,9 +240,7 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
   if (!AUTH_ENABLED) return res.json({ authenticated: true });
   const ip = req.ip || 'unknown';
   const now = Date.now();
-  for (const [key, attempt] of failedLogins) {
-    if (now - attempt.first > WINDOW_MS) failedLogins.delete(key);
-  }
+  pruneFailedLogins(now);
   const current = failedLogins.get(ip);
   if (current && current.count >= MAX_FAILS) {
     return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
@@ -355,12 +358,21 @@ app.delete('/api/users/:name', requireAdmin, (req: Request, res: Response) => {
 // Change your own password
 app.post('/api/me/password', (req: Request, res: Response) => {
   const auth = authOf(res);
+  const attemptKey = `password:${auth.user}`;
+  const now = Date.now();
+  pruneFailedLogins(now);
+  const currentAttempts = failedLogins.get(attemptKey);
+  if (currentAttempts && currentAttempts.count >= MAX_FAILS) {
+    return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+  }
   const users = readUsers();
   const me = users.find(u => u.username === auth.user);
   if (!me) return res.status(400).json({ error: 'Not available when login is turned off' });
   if (!verifyPassword(String(req.body?.currentPassword ?? ''), me.password)) {
+    failedLogins.set(attemptKey, { count: (currentAttempts?.count || 0) + 1, first: currentAttempts?.first || now });
     return res.status(401).json({ error: 'Current password is wrong' });
   }
+  failedLogins.delete(attemptKey);
   const next = cleanPassword(req.body?.newPassword);
   if (next.length < 4 || next.length > 128) return res.status(400).json({ error: 'Password must be 4-128 characters' });
   me.password = hashPassword(next);
