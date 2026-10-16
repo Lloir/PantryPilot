@@ -129,12 +129,32 @@ export function isPrivateAddress(ip: string): boolean {
     );
   }
   if (net.isIPv6(ip)) {
-    const l = ip.toLowerCase();
-    if (l === '::1' || l === '::') return true;
-    if (l.startsWith('fe8') || l.startsWith('fe9') || l.startsWith('fea') || l.startsWith('feb')) return true; // link-local
-    if (l.startsWith('fc') || l.startsWith('fd')) return true; // unique local
-    const mapped = l.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isPrivateAddress(mapped[1]);
+    const address = ip.toLowerCase().split('%')[0];
+    const ipv4Tail = address.match(/(?:^|:)(\d+\.\d+\.\d+\.\d+)$/);
+    let expanded = address;
+    if (ipv4Tail) {
+      const octets = ipv4Tail[1].split('.').map(Number);
+      const words = [(octets[0] << 8) | octets[1], (octets[2] << 8) | octets[3]];
+      expanded = address.slice(0, -ipv4Tail[1].length) + words.map(word => word.toString(16)).join(':');
+    }
+    const halves = expanded.split('::');
+    if (halves.length > 2) return true;
+    const left = halves[0] ? halves[0].split(':') : [];
+    const right = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+    const missing = 8 - left.length - right.length;
+    if ((halves.length === 1 && missing !== 0) || missing < 0) return true;
+    const words = [...left, ...Array(Math.max(0, missing)).fill('0'), ...right];
+    if (words.some(word => !/^[\da-f]{1,4}$/.test(word))) return true;
+    const value = words.reduce((result, word) => (result << 16n) | BigInt(`0x${word}`), 0n);
+    if (value === 0n || value === 1n) return true;
+    if ((value >> 120n) === 0xffn) return true; // multicast
+    if ((value >> 118n) === 0x3fan) return true; // fe80::/10 link-local
+    if ((value >> 121n) === 0x7en) return true; // fc00::/7 unique-local
+    if ((value >> 32n) === 0xffffn) {
+      const mapped = Number(value & 0xffffffffn);
+      return isPrivateAddress(`${mapped >>> 24}.${(mapped >>> 16) & 255}.${(mapped >>> 8) & 255}.${mapped & 255}`);
+    }
+    if ((value >> 32n) === 0n) return true; // IPv4-compatible and unspecified ranges
     return false;
   }
   return true;
@@ -204,12 +224,13 @@ function safeGet(url: URL): Promise<RawResponse> {
   });
 }
 
-/** Downloads a page (max ~2 MB, 8 s, up to 3 redirects, each one re-checked). */
+/** Downloads a page (max ~2 MB, 8 s, up to 5 redirects, each one re-checked). */
 export async function fetchPublicHtml(raw: string): Promise<{ html: string; url: string }> {
   let current = await assertPublicUrl(raw);
-  for (let hop = 0; hop < 4; hop++) {
+  for (let hop = 0; hop <= 5; hop++) {
     const res = await safeGet(current);
     if (res.status >= 300 && res.status < 400 && res.location) {
+      if (hop === 5) throw new Error('Too many redirects');
       current = await assertPublicUrl(new URL(res.location, current).toString());
       continue;
     }

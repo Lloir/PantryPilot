@@ -10,6 +10,7 @@ import { buildIcs, foldLine } from '../server-lib/ics';
 import { extractRecipeFromHtml, isoDurationToMinutes, isPrivateAddress, assertPublicUrl } from '../server-lib/recipeExtract';
 import { buildDigest } from '../server-lib/notify';
 import { csvCell } from '../server-lib/csv';
+import { hashPassword, isPasswordHash, verifyPassword } from '../server-lib/passwords';
 
 let failed = 0;
 const eq = (actual: unknown, expected: unknown, name: string) => {
@@ -90,13 +91,25 @@ const html = `<script type="application/ld+json">{"@graph":[{"@type":"WebSite"},
 const r = extractRecipeFromHtml(html)!;
 eq([r.name, r.servings, r.prepMinutes, r.cookMinutes, r.ingredients.length, r.instructions], ['Best & Easy Pancakes', 4, 10, 15, 2, ['Mix.', 'Fry.']], 'schema.org recipe');
 eq(extractRecipeFromHtml('<html>nothing</html>'), null, 'no recipe');
-for (const ip of ['127.0.0.1', '10.0.0.5', '192.168.1.50', '172.20.1.1', '169.254.1.1', '::1', 'fd00::1', '::ffff:192.168.0.1']) eq(isPrivateAddress(ip), true, 'private ' + ip);
+for (const ip of ['127.0.0.1', '10.0.0.5', '192.168.1.50', '172.20.1.1', '169.254.1.1', '0.0.0.0', '::', '::1', 'fd00::1', 'fc00::1', 'fe80::1', 'fe90::1', 'febf::1', '::ffff:192.168.0.1', '0:0:0:0:0:ffff:c0a8:1']) {
+  eq(isPrivateAddress(ip), true, 'private ' + ip);
+}
 eq(isPrivateAddress('8.8.8.8'), false, 'public address');
+eq(isPrivateAddress('2606:4700:4700::1111'), false, 'public IPv6 address');
 for (const u of ['http://localhost/x', 'http://192.168.1.5/', 'file:///etc/passwd', 'http://user:pw@example.com/', 'http://[::1]/']) {
   let err = '';
   try { await assertPublicUrl(u); } catch (e: any) { err = e.message; }
   eq(err !== '', true, 'blocked ' + u);
 }
+
+const legacyPassword = 'legacy-household-password';
+eq(verifyPassword(legacyPassword, legacyPassword), true, 'legacy plaintext password accepted');
+eq(verifyPassword('wrong-password', legacyPassword), false, 'legacy plaintext password rejected');
+const passwordHash = hashPassword(legacyPassword);
+eq(isPasswordHash(passwordHash), true, 'password is stored as scrypt');
+eq(verifyPassword(legacyPassword, passwordHash), true, 'scrypt password verifies');
+eq(verifyPassword('wrong-password', passwordHash), false, 'wrong scrypt password rejected');
+eq(verifyPassword(legacyPassword, 'scrypt$broken'), false, 'malformed scrypt hash rejected');
 
 // daily alert and csv
 const dg = buildDigest({ today: '2026-10-09', daysAhead: 3, inventory: [{ name: 'Chicken', quantity: 2, unit: 'lb', expirationDate: '2026-10-10' }, { name: 'Rice', quantity: 1, unit: 'lb', expirationDate: '2027-01-01', parLevel: 3 }, { name: 'Gone', quantity: 0, unit: 'lb', expirationDate: '2026-10-01' }], plannedMeals: [{ date: '2026-10-09', slot: 'Dinner', customName: 'Stew' }] });

@@ -144,16 +144,26 @@ Pick what each person can do:
 Requests show up on the **Requests** tab. Admins and members can turn a request into a
 shopping list item or a planned meal with one tap.
 
-The logins live in a plain text file in your data folder: `users.txt`
+Usernames and password hashes live in a text file in your data folder: `users.txt`
 (Unraid: `/mnt/user/appdata/pantrypal/users.txt`). One per line, and you can edit it by hand too:
 
 ```
-admin:your-password [admin]
-her-name:her-password [member]
-kid:kid-password [viewer]
+admin:scrypt$16384$<salt-base64>$<hash-base64> [admin]
+her-name:scrypt$16384$<salt-base64>$<hash-base64> [member]
+kid:scrypt$16384$<salt-base64>$<hash-base64> [viewer]
 ```
 
+Passwords are stored as `scrypt$N$salt-base64$hash-base64`. Existing plaintext entries
+continue to work and are converted to a hash after that user next signs in. You may still
+add or reset a user by entering a plaintext password in the file; it is hashed at next login.
+Treat `users.txt` as sensitive, and do not share its contents.
+
 > Want no login at all? Add the variable `AUTH_DISABLED=true`.
+
+**Reverse proxy:** By default PantryPilot does not trust forwarded IP/protocol headers.
+If it is behind Tailscale Serve, Nginx Proxy Manager, or another trusted proxy, set
+`TRUST_PROXY=1` for one proxy hop (or set a trusted proxy IP/subnet). This lets login
+rate limits use the client IP and enables secure session cookies over forwarded HTTPS.
 
 **Dark mode:** menu -> Theme -> Light, Dark, or Match device. This is per device.
 
@@ -172,6 +182,10 @@ docker run -d --name pantrypal --restart unless-stopped -p 3000:3000 -p 3443:344
 ```
 
 Your data is kept. It lives in the volume.
+
+To roll back, pull and run a specific release tag such as
+`ghcr.io/lloir/pantrypilot:v1.2.3`, or a commit image such as
+`ghcr.io/lloir/pantrypilot:sha-abc1234` instead of `:latest`.
 
 ---
 

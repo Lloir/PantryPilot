@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-16
+
+### Security
+- User passwords are now stored as scrypt hashes. Existing plaintext `users.txt` entries remain valid and are converted after each user's next successful login.
+- Added standard browser security headers and secure session cookies on HTTPS. `TRUST_PROXY` can be set for trusted reverse proxies; it is off by default.
+- Recipe URL imports now reject non-public IPv4/IPv6 addresses at every redirect and stop after five redirects. Gemini and exception details are logged server-side instead of returned to clients.
+
+### Changed
+- Docker now uses frozen Bun installs and the package start command, and its health checks no longer require curl.
+- Docker images now include the original `v*` release tag and a short-SHA tag for rollbacks.
+
 ## 2026-10-13
 
 ### Fixed
@@ -131,4 +142,3 @@
 
 ### Fixed
 - **AI recipe generation no longer adds the same recipe repeatedly.** The server used to return one hard-coded fallback recipe whenever Gemini was unavailable. It now returns an error, sends existing recipe names to the model, and drops repeats. Saving a recipe with a name you already have is refused.
-

@@ -13,6 +13,7 @@ import { buildIcs } from './server-lib/ics';
 import { inventoryCsv } from './server-lib/csv';
 import { buildDigest } from './server-lib/notify';
 import { extractRecipeFromHtml, fetchPublicHtml, htmlToText } from './server-lib/recipeExtract';
+import { hashPassword, isPasswordHash, verifyPassword } from './server-lib/passwords';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -23,9 +24,36 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const trustProxyEnv = process.env.TRUST_PROXY;
+const trustProxySetting: boolean | number | string =
+  trustProxyEnv === undefined || trustProxyEnv.trim() === '' ? false :
+    /^(true|1)$/i.test(trustProxyEnv) ? true :
+      /^(false|0)$/i.test(trustProxyEnv) ? false :
+        /^\d+$/.test(trustProxyEnv) ? Number(trustProxyEnv) : trustProxyEnv;
+const trustProxyEnabled = trustProxySetting !== false;
+app.set('trust proxy', trustProxySetting);
 // Browsers only allow the camera on https pages (or localhost), so a second, https port is offered too
 const HTTPS_PORT = process.env.HTTPS_DISABLED === 'true' ? null : Number(process.env.HTTPS_PORT || 3443);
 const isProd = process.env.NODE_ENV === 'production';
+const productionIndex = path.resolve(__dirname, 'dist', 'index.html');
+const inlineScriptHashes = isProd && fs.existsSync(productionIndex)
+  ? [...fs.readFileSync(productionIndex, 'utf-8').matchAll(/<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)]
+    .map(([, script]) => `'sha256-${crypto.createHash('sha256').update(script).digest('base64')}'`)
+  : [];
+const scriptPolicy = isProd
+  ? `'self' ${inlineScriptHashes.join(' ')}`
+  : "'self' 'unsafe-inline' 'unsafe-eval'";
+
+app.use((req: Request, res: Response, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader(
+    'Content-Security-Policy',
+    `default-src 'self'; script-src ${scriptPolicy}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' http: https: ws: wss:; media-src 'self' blob:; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'`
+  );
+  next();
+});
 
 // Persistent data directory (mount to /mnt/user/appdata/pantrypal on Unraid)
 const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, 'data');
@@ -47,7 +75,7 @@ app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 // ---------------------------------------------------------------------------
 // Household logins. Everyone signed in shares one pantry, planner and recipe book.
 // Logins live in a plain text file in the data folder, one per line:
-//     username:password [role]
+//     username:password [role] (passwords are stored as scrypt hashes)
 // Roles: admin (manages people, edits everything), member (edits everything),
 //        viewer (looks at everything and makes requests). No role = the first
 //        line is admin and everyone else is a member.
@@ -68,9 +96,10 @@ const REQUESTS_FILE = path.join(DATA_DIR, 'requests.json');
 const SESSION_COOKIE = 'pantrypal_session';
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const USERS_HEADER =
-  '# PantryPal logins, one per line:  username:password [role]\n' +
+  '# PantryPal logins, one per line:  username:scrypt$N$salt-base64$hash-base64 [role]\n' +
   '# Roles: admin (manages people), member (edits everything), viewer (looks and makes requests)\n' +
-  '# You can edit this file by hand or manage people from the menu in the app. No restart needed.\n';
+  '# Plaintext passwords are accepted when edited by hand and hashed after the next successful login.\n' +
+  '# You can also manage people from the menu in the app. No restart needed.\n';
 
 function writeFileAtomic(file: string, content: string) {
   const tmp = `${file}.${process.pid}.tmp`;
@@ -181,6 +210,8 @@ const canEdit = (auth: Auth) => auth.role === 'admin' || auth.role === 'member';
 
 const cookieOptions = (maxAgeMs: number) =>
   `Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}`;
+const secureRequest = (req: Request) =>
+  req.secure || (trustProxyEnabled && req.get('x-forwarded-proto')?.split(',')[0].trim().toLowerCase() === 'https');
 
 // Basic brute-force brake: 8 bad attempts per IP per 10 minutes
 const failedLogins = new Map<string, { count: number; first: number }>();
@@ -204,8 +235,9 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
   if (!AUTH_ENABLED) return res.json({ authenticated: true });
   const ip = req.ip || 'unknown';
   const now = Date.now();
-  const record = failedLogins.get(ip);
-  if (record && now - record.first > WINDOW_MS) failedLogins.delete(ip);
+  for (const [key, attempt] of failedLogins) {
+    if (now - attempt.first > WINDOW_MS) failedLogins.delete(key);
+  }
   const current = failedLogins.get(ip);
   if (current && current.count >= MAX_FAILS) {
     return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
@@ -213,21 +245,26 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
 
   const username = String(req.body?.username || '').trim().toLowerCase();
   const password = String(req.body?.password ?? '');
-  const stored = readUsers().find(u => u.username === username);
-  const ok = stored !== undefined && safeEqual(password, stored.password);
+  const users = readUsers();
+  const stored = users.find(u => u.username === username);
+  const ok = stored !== undefined && verifyPassword(password, stored.password);
 
   if (!ok) {
     failedLogins.set(ip, { count: (current?.count || 0) + 1, first: current?.first || now });
     return res.status(401).json({ error: 'Wrong username or password' });
   }
 
+  if (stored && !isPasswordHash(stored.password)) {
+    stored.password = hashPassword(password);
+    writeUsers(users);
+  }
   failedLogins.delete(ip);
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(createSessionToken(username))}; ${cookieOptions(SESSION_MAX_AGE_MS)}`);
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${encodeURIComponent(createSessionToken(username))}; ${cookieOptions(SESSION_MAX_AGE_MS)}${secureRequest(req) ? '; Secure' : ''}`);
   res.json({ authenticated: true, user: stored.username, role: stored.role });
 });
 
-app.post('/api/auth/logout', (_req: Request, res: Response) => {
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; ${cookieOptions(0)}`);
+app.post('/api/auth/logout', (req: Request, res: Response) => {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; ${cookieOptions(0)}${secureRequest(req) ? '; Secure' : ''}`);
   res.json({ authenticated: false });
 });
 
@@ -273,7 +310,7 @@ app.post('/api/users', requireAdmin, (req: Request, res: Response) => {
   }
   const users = readUsers();
   if (users.some(u => u.username === username)) return res.status(409).json({ error: 'That username is taken' });
-  users.push({ username, password, role });
+  users.push({ username, password: hashPassword(password), role });
   writeUsers(users);
   res.json({ users: users.map(publicUser) });
 });
@@ -295,7 +332,7 @@ app.patch('/api/users/:name', requireAdmin, (req: Request, res: Response) => {
     if (password.length < 4 || password.length > 128) {
       return res.status(400).json({ error: 'Password must be 4-128 characters' });
     }
-    target.password = password;
+    target.password = hashPassword(password);
   }
   writeUsers(users);
   res.json({ users: users.map(publicUser) });
@@ -321,12 +358,12 @@ app.post('/api/me/password', (req: Request, res: Response) => {
   const users = readUsers();
   const me = users.find(u => u.username === auth.user);
   if (!me) return res.status(400).json({ error: 'Not available when login is turned off' });
-  if (!safeEqual(String(req.body?.currentPassword ?? ''), me.password)) {
+  if (!verifyPassword(String(req.body?.currentPassword ?? ''), me.password)) {
     return res.status(401).json({ error: 'Current password is wrong' });
   }
   const next = cleanPassword(req.body?.newPassword);
   if (next.length < 4 || next.length > 128) return res.status(400).json({ error: 'Password must be 4-128 characters' });
-  me.password = next;
+  me.password = hashPassword(next);
   writeUsers(users);
   res.json({ success: true });
 });
@@ -517,14 +554,7 @@ const unitRule = (mode: unknown) => (mode === 'volume' ? UNIT_RULES.volume : UNI
 const apiKey = process.env.GEMINI_API_KEY;
 let ai: GoogleGenAI | null = null;
 if (apiKey) {
-  ai = new GoogleGenAI({
-    apiKey: apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
+  ai = new GoogleGenAI({ apiKey });
 }
 
 // Model names move around; try the configured one, then moving alias, then stable.
@@ -711,15 +741,6 @@ const SERVER_BARCODE_DATABASE: Record<string, any> = {
     foundInDatabase: true,
   },
 };
-
-// API: Health check
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    hasGeminiKey: Boolean(apiKey),
-    timestamp: new Date().toISOString(),
-  });
-});
 
 // --- Backups, export and restore -------------------------------------------
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
@@ -967,7 +988,8 @@ app.post('/api/notify/test', requireAdmin, async (req: Request, res: Response) =
     await sendNotification(cfg, digest?.title ?? 'PantryPal test', digest?.lines ?? ['This is a test alert. Nothing needs attention right now.']);
     res.json({ success: true });
   } catch (e) {
-    res.status(502).json({ error: `Could not send: ${(e as Error).message}` });
+    console.error('Could not send test notification:', e);
+    res.status(502).json({ error: 'Could not send the test notification' });
   }
 });
 
@@ -1028,8 +1050,10 @@ app.post('/api/import-recipe', async (req: Request, res: Response) => {
     }
     res.status(404).json({ error: "That page doesn't include recipe details PantryPal can read. Try copying the recipe text instead." });
   } catch (e) {
-    const msg = (e as Error).message;
-    res.status(400).json({ error: /fetch failed|ENOTFOUND|ECONN|EAI_AGAIN/i.test(msg) ? "Couldn't open that link" : msg });
+    console.error('Recipe import failed:', e);
+    const msg = String((e as Error).message ?? '');
+    const safeInputError = /That does not look like a web address|Only http and https|Links with a username|private network|Too many redirects|site answered with an error/i.test(msg);
+    res.status(400).json({ error: safeInputError ? msg : "Couldn't open that link" });
   }
 });
 
@@ -1039,7 +1063,8 @@ app.post('/api/parse-recipe-text', async (req: Request, res: Response) => {
   try {
     res.json({ recipe: await parseRecipeTextWithAi(text), via: 'ai' });
   } catch (e) {
-    res.status(400).json({ error: (e as Error).message });
+    console.error('Gemini recipe text parsing error:', e);
+    res.status(502).json({ error: 'The AI could not read that recipe. Try a clearer text and try again.' });
   }
 });
 
@@ -1323,7 +1348,7 @@ Return a JSON object with:
     });
   } catch (err: any) {
     console.error('Error in barcode lookup:', err);
-    res.status(500).json({ error: err.message || 'Internal server error' });
+    res.status(500).json({ error: 'Could not look up that barcode' });
   }
 });
 
@@ -1345,19 +1370,18 @@ app.post('/api/scan-receipt', async (req: Request, res: Response) => {
       res.status(503).json({ error: 'Receipt scanning needs a Gemini API key. Set GEMINI_API_KEY on the server and restart.' });
       return;
     }
-    {
-      try {
-        const response = await generateWithFallback({
-          contents: {
-            parts: [
-              {
-                inlineData: {
-                  mimeType: mimeType,
-                  data: cleanBase64,
-                },
+    try {
+      const response = await generateWithFallback({
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: cleanBase64,
               },
-              {
-                text: `You are an expert grocery receipt OCR engine.
+            },
+            {
+              text: `You are an expert grocery receipt OCR engine.
 Read this receipt photo carefully and extract EVERY line item, top to bottom. Never invent or guess items that are not printed. Receipt text may be abbreviated (e.g. "ORG BNLS CHKN BRST"): expand to a readable product name. Skip totals, payment, change, discounts-only lines and loyalty lines. Multi-buy lines (e.g. "2 @ 1.50") are one item with quantity 2. Weighed items use the weight as quantity.\nExtract all details from this receipt:
 1. Store name (e.g. "Trader Joe's", "Costco", "Whole Foods", "Kroger", "Safeway", or whatever is shown).
 2. Purchase date in YYYY-MM-DD format (if unclear, use today's date, ${new Date().toISOString().split('T')[0]}).
@@ -1373,68 +1397,67 @@ Read this receipt photo carefully and extract EVERY line item, top to bottom. Ne
    - barcode: optional UPC if visible
 5. rewardsPoints: loyalty / rewards points EARNED on this purchase, if the receipt prints them (e.g. "Points earned: 120", "Fuel points", "You earned 45 pts"). Use the points earned this trip, not the running balance. Omit if not shown.
 Return clean JSON matching the schema.`,
-              },
-            ],
-          },
-          config: {
-            temperature: 0,
-            maxOutputTokens: 8192,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                storeName: { type: Type.STRING },
-                purchaseDate: { type: Type.STRING },
-                subtotal: { type: Type.NUMBER },
-                tax: { type: Type.NUMBER },
-                total: { type: Type.NUMBER },
-                rewardsPoints: { type: Type.INTEGER },
+            },
+          ],
+        },
+        config: {
+          temperature: 0,
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              storeName: { type: Type.STRING },
+              purchaseDate: { type: Type.STRING },
+              subtotal: { type: Type.NUMBER },
+              tax: { type: Type.NUMBER },
+              total: { type: Type.NUMBER },
+              rewardsPoints: { type: Type.INTEGER },
+              items: {
+                type: Type.ARRAY,
                 items: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      name: { type: Type.STRING },
-                      category: { type: Type.STRING },
-                      quantity: { type: Type.NUMBER },
-                      unit: { type: Type.STRING },
-                      unitPrice: { type: Type.NUMBER },
-                      totalPrice: { type: Type.NUMBER },
-                      estimatedShelfLifeDays: { type: Type.INTEGER },
-                      barcode: { type: Type.STRING },
-                    },
-                    required: ['name', 'category', 'quantity', 'unit', 'unitPrice', 'totalPrice', 'estimatedShelfLifeDays'],
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    category: { type: Type.STRING },
+                    quantity: { type: Type.NUMBER },
+                    unit: { type: Type.STRING },
+                    unitPrice: { type: Type.NUMBER },
+                    totalPrice: { type: Type.NUMBER },
+                    estimatedShelfLifeDays: { type: Type.INTEGER },
+                    barcode: { type: Type.STRING },
                   },
+                  required: ['name', 'category', 'quantity', 'unit', 'unitPrice', 'totalPrice', 'estimatedShelfLifeDays'],
                 },
               },
-              required: ['storeName', 'purchaseDate', 'total', 'items'],
             },
+            required: ['storeName', 'purchaseDate', 'total', 'items'],
           },
-        });
+        },
+      });
 
-        const text = response.text;
-        if (!text) throw new Error('empty response');
-        const parsed = JSON.parse(text);
-        const items = (parsed.items || []).filter((it: any) => it && String(it.name || '').trim());
-        if (items.length === 0) {
-          res.status(422).json({ error: 'No items could be read from that photo. Try a sharper, well-lit, flat photo of the whole receipt.' });
-          return;
-        }
-        res.json({
-          ...parsed,
-          items: items.map((it: any) => ({ ...it, selected: true })),
-          source: 'gemini_multimodal_vision',
-        });
-        return;
-      } catch (geminiError: any) {
-        console.error('Gemini vision receipt parsing error:', geminiError);
-        res.status(502).json({ error: 'The AI could not read this receipt: ' + (String(geminiError?.message || '').slice(0, 200) || 'unknown error') });
+      const text = response.text;
+      if (!text) throw new Error('empty response');
+      const parsed = JSON.parse(text);
+      const items = (parsed.items || []).filter((it: any) => it && String(it.name || '').trim());
+      if (items.length === 0) {
+        res.status(422).json({ error: 'No items could be read from that photo. Try a sharper, well-lit, flat photo of the whole receipt.' });
         return;
       }
+      res.json({
+        ...parsed,
+        items: items.map((it: any) => ({ ...it, selected: true })),
+        source: 'gemini_multimodal_vision',
+      });
+      return;
+    } catch (geminiError: any) {
+      console.error('Gemini vision receipt parsing error:', geminiError);
+      res.status(502).json({ error: 'The AI could not read this receipt. Try a sharper photo or try again.' });
+      return;
     }
   } catch (err: any) {
     console.error('Error scanning receipt:', err);
-    res.status(500).json({ error: err.message || 'Failed to scan receipt' });
+    res.status(500).json({ error: 'Failed to scan receipt' });
   }
 });
 
@@ -1549,7 +1572,7 @@ ${existingNames.length ? `8. The user already has these recipes, so do NOT sugge
     });
   } catch (err: any) {
     console.error('Error in suggest-recipes:', err);
-    res.status(500).json({ error: err.message || 'Failed to suggest recipes' });
+    res.status(500).json({ error: 'Failed to suggest recipes' });
   }
 });
 
