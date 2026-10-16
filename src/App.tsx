@@ -56,6 +56,7 @@ import { InstallAppModal } from './components/InstallAppModal';
 import { UnraidModal } from './components/UnraidModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { attachOnlineRetry, shouldWarnBeforeUnload, syncRetryDelay } from './utils/syncRetry';
 
 export default function App() {
   const auth = useAuth();
@@ -207,6 +208,8 @@ export default function App() {
 
   // True once the server copy has been loaded (or the server is unreachable)
   const [hydrated, setHydrated] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'saved' | 'pending' | 'saving' | 'error'>('saved');
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
   // --- Shared household data -------------------------------------------------
   // The server keeps one copy for everyone. `revisionRef` is the version this device last
@@ -215,6 +218,11 @@ export default function App() {
   const revisionRef = useRef(0);
   const lastSyncedRef = useRef<SyncedState | null>(null);
   const savingRef = useRef(false);
+  const queuedSaveRef = useRef(false);
+  const retryAttemptRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryNowRef = useRef<() => void>(() => {});
+  const shouldWarnBeforeUnloadRef = useRef(false);
   const latestRef = useRef<SyncedState>({ inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings });
   latestRef.current = { inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings };
 
@@ -250,6 +258,25 @@ export default function App() {
 
   const hasUnsavedChanges = () =>
     !lastSyncedRef.current || JSON.stringify(latestRef.current) !== JSON.stringify(lastSyncedRef.current);
+  shouldWarnBeforeUnloadRef.current = hydrated && shouldWarnBeforeUnload(hasUnsavedChanges(), auth.role);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!shouldWarnBeforeUnloadRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  const scheduleRetry = (delay: number) => {
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null;
+      void saveToServer();
+    }, delay);
+  };
 
   useEffect(() => {
     fetch('/api/pantry-data')
@@ -260,10 +287,12 @@ export default function App() {
           applyState(server);
           lastSyncedRef.current = server;
           revisionRef.current = data.revision;
+          setLastSyncedAt(typeof data.updatedAt === 'string' ? data.updatedAt : null);
         } else {
           // Brand new server: this device's data (if any) becomes the household's first copy
           revisionRef.current = 0;
           lastSyncedRef.current = toSyncedState(null);
+          setLastSyncedAt(null);
         }
       })
       .catch(() => {
@@ -287,6 +316,7 @@ export default function App() {
           const server = toSyncedState(data);
           revisionRef.current = data.revision;
           lastSyncedRef.current = server;
+          setLastSyncedAt(typeof data.updatedAt === 'string' ? data.updatedAt : null);
           applyState(server);
           if (data.updatedBy && data.updatedBy !== auth.user) showToast(`${data.updatedBy} updated the pantry`);
         })
@@ -300,6 +330,14 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
+
+  useEffect(() => {
+    const detachOnlineRetry = attachOnlineRetry(window, () => retryNowRef.current());
+    return () => {
+      detachOnlineRetry();
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+  }, []);
 
   // One-time migration: standardize units, merge existing duplicate rows and
   // seed the purchase history from what is already in the pantry.
@@ -342,9 +380,15 @@ export default function App() {
   }, [hydrated]);
 
   const saveToServer = async () => {
-    if (savingRef.current) return;
+    if (savingRef.current) {
+      queuedSaveRef.current = true;
+      return;
+    }
     savingRef.current = true;
+    setSyncStatus('saving');
     const snap = latestRef.current;
+    let retryableFailure = false;
+    let conflict = false;
     try {
       const res = await fetch('/api/pantry-data', {
         method: 'POST',
@@ -355,6 +399,8 @@ export default function App() {
         const data = await res.json();
         revisionRef.current = data.revision;
         lastSyncedRef.current = snap;
+        setLastSyncedAt(data.savedAt || new Date().toISOString());
+        retryAttemptRef.current = 0;
       } else if (res.status === 409) {
         // Someone saved first: keep their changes and re-apply ours on top
         const { current } = await res.json();
@@ -362,26 +408,52 @@ export default function App() {
         const merged = mergeStates(lastSyncedRef.current ?? toSyncedState(null), snap, server);
         revisionRef.current = current.revision;
         lastSyncedRef.current = server;
+        setLastSyncedAt(typeof current.updatedAt === 'string' ? current.updatedAt : null);
         applyState(merged);
         showToast(`Combined your changes with ${current.updatedBy || 'someone else'}'s`);
+        conflict = true;
       } else if (res.status === 403) {
         showToast('You have view-only access, so that change was not saved');
+        setSyncStatus('error');
+      } else {
+        retryableFailure = true;
       }
     } catch (e) {
-      // offline: the next change tries again
+      retryableFailure = true;
     } finally {
       savingRef.current = false;
+      const shouldSaveAgain = queuedSaveRef.current || conflict || (hasUnsavedChanges() && !retryableFailure);
+      queuedSaveRef.current = false;
+      if (retryableFailure) {
+        setSyncStatus('error');
+        retryAttemptRef.current++;
+        scheduleRetry(syncRetryDelay(retryAttemptRef.current));
+      } else if (shouldSaveAgain && hasUnsavedChanges()) {
+        setSyncStatus('pending');
+        scheduleRetry(0);
+      } else if (!hasUnsavedChanges()) {
+        setSyncStatus('saved');
+      }
     }
+  };
+  retryNowRef.current = () => {
+    if (auth.role === 'viewer' || !hydrated || !hasUnsavedChanges()) return;
+    retryAttemptRef.current = 0;
+    scheduleRetry(0);
   };
 
   // Save to the server (debounced). Nothing is sent when the data matches what the server has.
   useEffect(() => {
-    if (!hydrated || auth.role === 'viewer') return; // never overwrite the server copy before it has been read
-    if (!hasUnsavedChanges()) return;
+    if (!hydrated || auth.role === 'viewer' || syncStatus === 'error') return;
+    if (!hasUnsavedChanges()) {
+      if (!savingRef.current) setSyncStatus('saved');
+      return;
+    }
+    if (syncStatus !== 'saving') setSyncStatus('pending');
     const timer = setTimeout(saveToServer, 1200);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, auth.role, inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings]);
+  }, [hydrated, auth.role, inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings, syncStatus]);
 
   useEffect(() => {
     try {
@@ -1036,7 +1108,7 @@ export default function App() {
       <InstallBanner onOpenGuide={() => setIsAPKModalOpen(true)} />
 
       {/* Offline Mode Indicator */}
-      <OfflineIndicator />
+      <OfflineIndicator syncStatus={syncStatus} lastSyncedAt={lastSyncedAt} onRetry={() => retryNowRef.current()} />
 
       {/* View-only notice */}
       {readOnly && (

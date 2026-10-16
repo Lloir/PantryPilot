@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-16
+
+### Security
+- User passwords are now stored as scrypt hashes. Existing plaintext `users.txt` entries remain valid and are converted after each user's next successful login.
+- Added standard browser security headers and secure session cookies on HTTPS. `TRUST_PROXY` can be set for trusted reverse proxies; it is off by default.
+- Recipe URL imports now reject non-public IPv4/IPv6 addresses at every redirect and stop after five redirects. Gemini and exception details are logged server-side instead of returned to clients.
+- Login, password-change, backup, and import operations now have request-rate limits in addition to failed-password throttling.
+- AI and barcode endpoints have per-user/IP usage limits; Gemini calls time out after 45 seconds. Pantry writes are schema-checked and capped at 10,000 records per collection.
+
+### Changed
+- Docker now uses frozen Bun installs and the package start command, and its health checks no longer require curl.
+- Docker images now include the original `v*` release tag and a short-SHA tag for rollbacks.
+- Pantry sync queues edits made during an active save; recipe and meal matching no longer treats partial words or incompatible units as available stock.
+- Backup and import flows show a count preview before replacing household data. Older partial exports preserve collections and settings they do not contain; new exports require all collections.
+- Failed pantry syncs are visible and retried with bounded backoff, with an immediate retry when connectivity returns.
+- Sync status includes the last successful save time and warns editors before leaving with unsaved changes.
+
+### Fixed
+- Calendar exports now correctly escape semicolons, and malformed backup/import records are rejected before restore.
+- Added HTTP integration coverage for authentication, revision conflicts, backup preview/restore, and legacy/current import validation.
+
 ## 2026-10-13
 
 ### Fixed
@@ -131,4 +152,3 @@
 
 ### Fixed
 - **AI recipe generation no longer adds the same recipe repeatedly.** The server used to return one hard-coded fallback recipe whenever Gemini was unavailable. It now returns an error, sends existing recipe names to the model, and drops repeats. Saving a recipe with a name you already have is refused.
-

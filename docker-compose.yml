@@ -20,8 +20,10 @@ services:
       - HTTPS_HOSTNAMES=${HTTPS_HOSTNAMES:-}
       # Optional: Add your Gemini API key for smart receipt OCR & recipe generation
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # Optional: number of trusted proxy hops or proxy IP/subnet(s), e.g. 1
+      - TRUST_PROXY=${TRUST_PROXY:-}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
