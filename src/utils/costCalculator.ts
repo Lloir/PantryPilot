@@ -11,6 +11,11 @@ export function normalizeQuantity(quantity: number, fromUnit: string, toUnit: st
  * Finds an inventory item matching a recipe ingredient name
  */
 export function findMatchingInventoryItem(ingredientName: string, inventory: InventoryItem[]): InventoryItem | undefined {
+  const matchingQualifiers = new Set([
+    'boneless', 'chopped', 'cooked', 'crushed', 'diced', 'dried', 'drumstick', 'fresh', 'frozen',
+    'ground', 'large', 'lean', 'medium', 'minced', 'organic', 'raw', 'shredded', 'skinless',
+    'small', 'sliced', 'whole',
+  ]);
   const normalizeToken = (token: string) => {
     if (token.length > 4 && token.endsWith('ies')) return `${token.slice(0, -3)}y`;
     if (token.length > 4 && token.endsWith('oes')) return token.slice(0, -2);
@@ -39,7 +44,7 @@ export function findMatchingInventoryItem(ingredientName: string, inventory: Inv
     const larger = tokens.size <= itemTokens.size ? itemTokens : tokens;
     if (![...smaller].every(token => larger.has(token))) return [];
     const extras = [...larger].filter(token => !smaller.has(token));
-    if (extras.some(token => ['soup', 'sauce', 'stock', 'broth', 'powder', 'extract', 'juice'].includes(token))) return [];
+    if (extras.some(token => !matchingQualifiers.has(token))) return [];
     return [{ item, score: smaller.size / larger.size }];
   }).sort((a, b) => b.score - a.score);
   if (!matches.length || (matches.length > 1 && matches[0].score === matches[1].score)) return undefined;

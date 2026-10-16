@@ -124,6 +124,7 @@ eq(findMatchingInventoryItem('chicken breast', recipeInventory)?.id, 'chicken', 
 eq(findMatchingInventoryItem('chick', recipeInventory), undefined, 'partial words do not match pantry items');
 eq(findMatchingInventoryItem('black beans', recipeInventory), undefined, 'ingredient does not match a different prepared food');
 eq(findMatchingInventoryItem('egg', [{ ...recipeInventory[0], name: 'Eggs' }])?.name, 'Eggs', 'singular and plural ingredient names match');
+eq(findMatchingInventoryItem('egg', [{ ...recipeInventory[0], name: 'Eggs on Toast' }]), undefined, 'ingredient does not match a prepared dish');
 eq(findMatchingInventoryItem('chicken', [...recipeInventory, { ...recipeInventory[0], id: 'thighs', name: 'Chicken Thighs' }]), undefined, 'ambiguous ingredient matches are not guessed');
 const incompatibleRecipe: any = {
   id: 'r', name: 'Test', servings: 1,
