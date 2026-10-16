@@ -89,6 +89,13 @@ try {
   const previewResponse = await fetch(`${base}/api/backups/${encodeURIComponent(backup.name)}/preview`, { headers: authHeaders });
   assert.equal(previewResponse.status, 200, 'backup preview is available');
   assert.equal((await previewResponse.json() as any).counts.inventory.incoming, 1, 'preview reports incoming inventory');
+  for (let attempt = 0; attempt < 9; attempt++) {
+    const response = await fetch(`${base}/api/backups/${encodeURIComponent(backup.name)}/preview`, { headers: authHeaders });
+    assert.equal(response.status, 200, 'backup preview is allowed within the rate limit');
+  }
+  const limitedPreview = await fetch(`${base}/api/backups/${encodeURIComponent(backup.name)}/preview`, { headers: authHeaders });
+  assert.equal(limitedPreview.status, 429, 'backup previews are rate limited');
+  assert.ok(limitedPreview.headers.get('retry-after'), 'rate limit communicates retry delay');
 
   const malformed = await fetch(`${base}/api/import/preview`, {
     method: 'POST', headers: authHeaders,

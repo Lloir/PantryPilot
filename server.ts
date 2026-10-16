@@ -286,6 +286,23 @@ const requireAdmin = (_req: Request, res: Response, next: () => void) => {
   next();
 };
 
+const adminOperationLimits = new Map<string, { count: number; resetAt: number }>();
+const limitAdminOperation = (operation: string) => (req: Request, res: Response, next: () => void) => {
+  const now = Date.now();
+  for (const [key, limit] of adminOperationLimits) {
+    if (limit.resetAt <= now) adminOperationLimits.delete(key);
+  }
+  const key = `${operation}:${req.ip || 'unknown'}:${authOf(res).user}`;
+  const limit = adminOperationLimits.get(key);
+  if (limit && limit.count >= 10) {
+    res.setHeader('Retry-After', String(Math.max(1, Math.ceil((limit.resetAt - now) / 1000))));
+    return res.status(429).json({ error: 'Too many requests. Try again in a minute.' });
+  }
+  if (limit) limit.count++;
+  else adminOperationLimits.set(key, { count: 1, resetAt: now + 60_000 });
+  next();
+};
+
 // AI calls cost money and only matter to people who can edit, so view-only members are kept out
 app.use(['/api/scan-receipt', '/api/suggest-recipes', '/api/barcode-lookup', '/api/barcode-save', '/api/import-recipe', '/api/parse-recipe-text'], (_req: Request, res: Response, next) => {
   if (!canEdit(authOf(res))) return res.status(403).json({ error: 'View-only members cannot use scanning or AI suggestions' });
@@ -845,7 +862,7 @@ app.get('/api/backups', requireAdmin, (_req: Request, res: Response) => {
   }
 });
 
-app.post('/api/backups', requireAdmin, (_req: Request, res: Response) => {
+app.post('/api/backups', requireAdmin, limitAdminOperation('backup-create'), (_req: Request, res: Response) => {
   try {
     res.json({ name: writeBackup('manual') });
   } catch (e) {
@@ -860,7 +877,7 @@ app.get('/api/backups/:name', requireAdmin, (req: Request, res: Response) => {
   res.download(file, name);
 });
 
-app.get('/api/backups/:name/preview', requireAdmin, (req: Request, res: Response) => {
+app.get('/api/backups/:name/preview', requireAdmin, limitAdminOperation('backup-preview'), (req: Request, res: Response) => {
   const name = String(req.params.name);
   const file = path.join(BACKUP_DIR, name);
   if (!BACKUP_NAME_RE.test(name) || !fs.existsSync(file)) return res.status(404).json({ error: 'No such backup' });
@@ -873,7 +890,7 @@ app.get('/api/backups/:name/preview', requireAdmin, (req: Request, res: Response
   }
 });
 
-app.post('/api/backups/:name/restore', requireAdmin, (req: Request, res: Response) => {
+app.post('/api/backups/:name/restore', requireAdmin, limitAdminOperation('backup-restore'), (req: Request, res: Response) => {
   const name = String(req.params.name);
   const file = path.join(BACKUP_DIR, name);
   if (!BACKUP_NAME_RE.test(name) || !fs.existsSync(file)) return res.status(404).json({ error: 'No such backup' });
@@ -888,7 +905,7 @@ app.post('/api/backups/:name/restore', requireAdmin, (req: Request, res: Respons
   }
 });
 
-app.post('/api/import', requireAdmin, (req: Request, res: Response) => {
+app.post('/api/import', requireAdmin, limitAdminOperation('import'), (req: Request, res: Response) => {
   if (!isValidSnapshot(req.body)) return res.status(400).json({ error: "That file isn't a PantryPal export" });
   try {
     restoreSnapshot(req.body, authOf(res).user);
@@ -899,7 +916,7 @@ app.post('/api/import', requireAdmin, (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/import/preview', requireAdmin, (req: Request, res: Response) => {
+app.post('/api/import/preview', requireAdmin, limitAdminOperation('import-preview'), (req: Request, res: Response) => {
   if (!isValidSnapshot(req.body)) return res.status(400).json({ error: "That file isn't a PantryPal export" });
   res.json({ counts: summarizeSnapshot(req.body, readDb(), { requests: readRequests(), barcodes: readBarcodeCache() }) });
 });
