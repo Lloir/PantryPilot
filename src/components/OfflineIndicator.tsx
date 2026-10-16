@@ -3,8 +3,9 @@ import { WifiOff, RefreshCw, Cloud, CloudOff } from 'lucide-react';
 
 export const OfflineIndicator: React.FC<{
   syncStatus?: 'saved' | 'pending' | 'saving' | 'error';
+  lastSyncedAt?: string | null;
   onRetry?: () => void;
-}> = ({ syncStatus = 'saved', onRetry }) => {
+}> = ({ syncStatus = 'saved', lastSyncedAt, onRetry }) => {
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
@@ -22,7 +23,14 @@ export const OfflineIndicator: React.FC<{
     };
   }, []);
 
-  if (isOnline && syncStatus === 'saved') return null;
+  if (isOnline && syncStatus === 'saved') {
+    if (!lastSyncedAt) return null;
+    return (
+      <div role="status" className="fixed bottom-20 right-4 sm:right-6 z-40 rounded-full bg-white/90 text-stone-500 px-3 py-1.5 text-[10px] shadow border border-stone-200">
+        Synced {new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+      </div>
+    );
+  }
 
   const message = !isOnline
     ? syncStatus === 'saved' ? 'Offline — changes stay on this device until you reconnect.' : 'Offline — changes are waiting to sync.'
@@ -34,7 +42,7 @@ export const OfflineIndicator: React.FC<{
     <div role="status" className="fixed bottom-20 left-4 right-4 sm:left-auto sm:right-6 z-50 flex items-center justify-between gap-3 rounded-2xl bg-stone-900/95 text-white px-4 py-2.5 text-xs font-semibold shadow-xl border border-stone-700 backdrop-blur-md">
       <div className="flex items-center space-x-2">
         {!isOnline ? <WifiOff className="w-4 h-4 text-amber-400" /> : syncStatus === 'error' ? <CloudOff className="w-4 h-4 text-amber-400" /> : <Cloud className="w-4 h-4 text-emerald-400" />}
-        <span>{message}</span>
+        <span>{message}{lastSyncedAt ? ` Last synced ${new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.` : ''}</span>
       </div>
       <button
         onClick={onRetry}

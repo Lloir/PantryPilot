@@ -11,10 +11,10 @@ import { extractRecipeFromHtml, isoDurationToMinutes, isPrivateAddress, assertPu
 import { buildDigest } from '../server-lib/notify';
 import { csvCell } from '../server-lib/csv';
 import { hashPassword, isPasswordHash, verifyPassword } from '../server-lib/passwords';
-import { isValidSnapshot, summarizeSnapshot } from '../server-lib/snapshot';
+import { isValidPantryWrite, isValidSnapshot, summarizeSnapshot } from '../server-lib/snapshot';
 import { calculateRecipeCostAndMatch, findMatchingInventoryItem } from '../src/utils/costCalculator';
 import { forecastInventoryDeductions, generateShoppingListFromMealPlan } from '../src/utils/inventoryForecaster';
-import { attachOnlineRetry, syncRetryDelay } from '../src/utils/syncRetry';
+import { attachOnlineRetry, shouldWarnBeforeUnload, syncRetryDelay } from '../src/utils/syncRetry';
 
 let failed = 0;
 const eq = (actual: unknown, expected: unknown, name: string) => {
@@ -162,7 +162,12 @@ eq(isValidSnapshot(currentExport), true, 'complete current-format snapshot accep
 eq(isValidSnapshot({ ...currentExport, pantry: { ...currentExport.pantry, recipes: undefined } }), false, 'current snapshot requires every collection');
 eq(isValidSnapshot({ ...validExport, version: 3 }), false, 'unknown snapshot version rejected');
 eq(summarizeSnapshot(validExport, { inventory: [{}, {}], settings: { currency: 'USD' } }).shoppingList.incoming, null, 'preview marks omitted legacy collections as preserved');
+eq(isValidPantryWrite({ baseRevision: 0, inventory: validExport.pantry.inventory }), true, 'valid pantry write accepted');
+eq(isValidPantryWrite({ baseRevision: 0, inventory: [{ ...validExport.pantry.inventory[0], quantity: '1' }] }), false, 'malformed pantry write rejected');
+eq(isValidPantryWrite({ baseRevision: -1, inventory: [] }), false, 'invalid pantry revision rejected');
+eq(isValidPantryWrite({ baseRevision: 0, inventory: Array.from({ length: 10001 }, () => ({})) }), false, 'oversized pantry collection rejected');
 eq([syncRetryDelay(1), syncRetryDelay(2), syncRetryDelay(50)], [1000, 2000, 30000], 'sync retry delay uses bounded exponential backoff');
+eq([shouldWarnBeforeUnload(true, 'member'), shouldWarnBeforeUnload(false, 'member'), shouldWarnBeforeUnload(true, 'viewer')], [true, false, false], 'warn only when editors have unsaved changes');
 const onlineEvents = new EventTarget();
 let reconnectRetries = 0;
 const detachOnlineRetry = attachOnlineRetry(onlineEvents, () => reconnectRetries++);

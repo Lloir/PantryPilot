@@ -77,6 +77,15 @@ try {
     }),
   });
   assert.equal(save.status, 200, 'first pantry save succeeds');
+  const invalidSave = await fetch(`${base}/api/pantry-data`, {
+    method: 'POST', headers: authHeaders,
+    body: JSON.stringify({ baseRevision: 1, inventory: [{ ...item, quantity: 'two' }] }),
+  });
+  assert.equal(invalidSave.status, 400, 'malformed pantry data is rejected');
+  const aiBurst = await Promise.all(Array.from({ length: 11 }, () => fetch(`${base}/api/scan-receipt`, {
+    method: 'POST', headers: authHeaders, body: JSON.stringify({}),
+  })));
+  assert.equal(aiBurst.filter(response => response.status === 429).length, 1, 'AI endpoint burst limit is enforced');
   const staleSave = await fetch(`${base}/api/pantry-data`, {
     method: 'POST', headers: authHeaders,
     body: JSON.stringify({ baseRevision: 0, inventory: [], settings: {} }),

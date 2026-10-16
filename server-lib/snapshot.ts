@@ -2,6 +2,7 @@ const LIST_KEYS = [
   'inventory', 'recipes', 'plannedMeals', 'cookedLogs', 'shoppingList', 'purchaseLogs', 'rewards',
   'wasteLogs', 'priceHistory', 'receiptLog', 'activity',
 ] as const;
+const MAX_PANTRY_RECORDS = 10_000;
 
 const isObject = (value: unknown): value is Record<string, any> =>
   Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -69,6 +70,12 @@ export function isValidSnapshot(snap: unknown): boolean {
   ))) return false;
   if (snap.barcodes !== undefined && !isObject(snap.barcodes)) return false;
   return true;
+}
+
+export function isValidPantryWrite(body: unknown): boolean {
+  if (!isObject(body) || !Number.isSafeInteger(body.baseRevision) || body.baseRevision < 0) return false;
+  if (LIST_KEYS.some(key => Array.isArray(body[key]) && body[key].length > MAX_PANTRY_RECORDS)) return false;
+  return isValidSnapshot({ app: 'pantrypal', version: 1, pantry: body });
 }
 
 export function summarizeSnapshot(

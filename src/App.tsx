@@ -56,7 +56,7 @@ import { InstallAppModal } from './components/InstallAppModal';
 import { UnraidModal } from './components/UnraidModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
-import { attachOnlineRetry, syncRetryDelay } from './utils/syncRetry';
+import { attachOnlineRetry, shouldWarnBeforeUnload, syncRetryDelay } from './utils/syncRetry';
 
 export default function App() {
   const auth = useAuth();
@@ -209,6 +209,7 @@ export default function App() {
   // True once the server copy has been loaded (or the server is unreachable)
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'pending' | 'saving' | 'error'>('saved');
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
   // --- Shared household data -------------------------------------------------
   // The server keeps one copy for everyone. `revisionRef` is the version this device last
@@ -221,6 +222,7 @@ export default function App() {
   const retryAttemptRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryNowRef = useRef<() => void>(() => {});
+  const shouldWarnBeforeUnloadRef = useRef(false);
   const latestRef = useRef<SyncedState>({ inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings });
   latestRef.current = { inventory, recipes, plannedMeals, cookedLogs, shoppingList, purchaseLogs, rewards, wasteLogs, priceHistory, receiptLog, activity, settings };
 
@@ -256,6 +258,17 @@ export default function App() {
 
   const hasUnsavedChanges = () =>
     !lastSyncedRef.current || JSON.stringify(latestRef.current) !== JSON.stringify(lastSyncedRef.current);
+  shouldWarnBeforeUnloadRef.current = hydrated && shouldWarnBeforeUnload(hasUnsavedChanges(), auth.role);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!shouldWarnBeforeUnloadRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   const scheduleRetry = (delay: number) => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -274,10 +287,12 @@ export default function App() {
           applyState(server);
           lastSyncedRef.current = server;
           revisionRef.current = data.revision;
+          setLastSyncedAt(typeof data.updatedAt === 'string' ? data.updatedAt : null);
         } else {
           // Brand new server: this device's data (if any) becomes the household's first copy
           revisionRef.current = 0;
           lastSyncedRef.current = toSyncedState(null);
+          setLastSyncedAt(null);
         }
       })
       .catch(() => {
@@ -301,6 +316,7 @@ export default function App() {
           const server = toSyncedState(data);
           revisionRef.current = data.revision;
           lastSyncedRef.current = server;
+          setLastSyncedAt(typeof data.updatedAt === 'string' ? data.updatedAt : null);
           applyState(server);
           if (data.updatedBy && data.updatedBy !== auth.user) showToast(`${data.updatedBy} updated the pantry`);
         })
@@ -383,6 +399,7 @@ export default function App() {
         const data = await res.json();
         revisionRef.current = data.revision;
         lastSyncedRef.current = snap;
+        setLastSyncedAt(data.savedAt || new Date().toISOString());
         retryAttemptRef.current = 0;
       } else if (res.status === 409) {
         // Someone saved first: keep their changes and re-apply ours on top
@@ -391,6 +408,7 @@ export default function App() {
         const merged = mergeStates(lastSyncedRef.current ?? toSyncedState(null), snap, server);
         revisionRef.current = current.revision;
         lastSyncedRef.current = server;
+        setLastSyncedAt(typeof current.updatedAt === 'string' ? current.updatedAt : null);
         applyState(merged);
         showToast(`Combined your changes with ${current.updatedBy || 'someone else'}'s`);
         conflict = true;
@@ -1090,7 +1108,7 @@ export default function App() {
       <InstallBanner onOpenGuide={() => setIsAPKModalOpen(true)} />
 
       {/* Offline Mode Indicator */}
-      <OfflineIndicator syncStatus={syncStatus} onRetry={() => retryNowRef.current()} />
+      <OfflineIndicator syncStatus={syncStatus} lastSyncedAt={lastSyncedAt} onRetry={() => retryNowRef.current()} />
 
       {/* View-only notice */}
       {readOnly && (

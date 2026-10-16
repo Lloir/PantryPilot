@@ -8,3 +8,7 @@ export function attachOnlineRetry(target: EventTarget, retry: () => void): () =>
   target.addEventListener('online', handleOnline);
   return () => target.removeEventListener('online', handleOnline);
 }
+
+export function shouldWarnBeforeUnload(hasUnsavedChanges: boolean, role: string): boolean {
+  return hasUnsavedChanges && role !== 'viewer';
+}

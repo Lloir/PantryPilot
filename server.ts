@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { rateLimit } from 'express-rate-limit';
+import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -15,7 +15,7 @@ import { inventoryCsv } from './server-lib/csv';
 import { buildDigest } from './server-lib/notify';
 import { extractRecipeFromHtml, fetchPublicHtml, htmlToText } from './server-lib/recipeExtract';
 import { hashPassword, isPasswordHash, verifyPassword } from './server-lib/passwords';
-import { isValidSnapshot, summarizeSnapshot } from './server-lib/snapshot';
+import { isValidPantryWrite, isValidSnapshot, summarizeSnapshot } from './server-lib/snapshot';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 
@@ -56,6 +56,18 @@ app.use((req: Request, res: Response, next) => {
   );
   next();
 });
+const keyedRequestLimit = (identifier: string, windowMs: number, limit: number) => rateLimit({
+  windowMs,
+  limit,
+  identifier,
+  keyGenerator: (req, res) => `${authOf(res).user}:${ipKeyGenerator(req.ip || '127.0.0.1')}`,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Try again later.' },
+});
+const aiBurstRateLimit = keyedRequestLimit('ai-burst', 60_000, 10);
+const aiDailyRateLimit = keyedRequestLimit('ai-daily', 24 * 60 * 60 * 1000, 100);
+const barcodeLookupRateLimit = keyedRequestLimit('barcode-lookup', 60_000, 60);
 
 // Persistent data directory (mount to /mnt/user/appdata/pantrypal on Unraid)
 const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, 'data');
@@ -585,6 +597,9 @@ app.post('/api/pantry-data', (req: Request, res: Response) => {
   if (!canEdit(authOf(res))) {
     return res.status(403).json({ error: 'You have view-only access. Use Requests to ask for changes.' });
   }
+  if (!isValidPantryWrite(req.body)) {
+    return res.status(400).json({ error: 'Pantry data is malformed or exceeds the allowed size' });
+  }
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     const current = readDb();
@@ -634,7 +649,11 @@ async function generateWithFallback(params: any): Promise<any> {
   let lastErr: any;
   for (const model of models) {
     try {
-      const out = await ai.models.generateContent({ ...params, model });
+      const out = await ai.models.generateContent({
+        ...params,
+        config: { ...params.config, abortSignal: AbortSignal.timeout(45_000) },
+        model,
+      });
       workingModel = model;
       return out;
     } catch (e: any) {
@@ -1113,7 +1132,7 @@ async function parseRecipeTextWithAi(text: string) {
   };
 }
 
-app.post('/api/import-recipe', async (req: Request, res: Response) => {
+app.post('/api/import-recipe', aiBurstRateLimit, aiDailyRateLimit, async (req: Request, res: Response) => {
   const url = String(req.body?.url ?? '').trim();
   if (!url) return res.status(400).json({ error: 'Paste a link to a recipe' });
   try {
@@ -1134,7 +1153,7 @@ app.post('/api/import-recipe', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/parse-recipe-text', async (req: Request, res: Response) => {
+app.post('/api/parse-recipe-text', aiBurstRateLimit, aiDailyRateLimit, async (req: Request, res: Response) => {
   const text = String(req.body?.text ?? '').trim().slice(0, 15000);
   if (text.length < 20) return res.status(400).json({ error: 'Paste the recipe text first' });
   try {
@@ -1291,7 +1310,7 @@ async function lookupUpcItemDb(code: string) {
 }
 
 // Remember what your household corrected, so the same barcode is right next time
-app.post('/api/barcode-save', (req: Request, res: Response) => {
+app.post('/api/barcode-save', barcodeLookupRateLimit, (req: Request, res: Response) => {
   const b = req.body || {};
   const code = String(b.barcode || '').trim();
   const name = String(b.name || '').trim().slice(0, 200);
@@ -1322,7 +1341,7 @@ app.post('/api/barcode-save', (req: Request, res: Response) => {
 });
 
 // API: Barcode Lookup
-app.post('/api/barcode-lookup', async (req: Request, res: Response) => {
+app.post('/api/barcode-lookup', barcodeLookupRateLimit, aiBurstRateLimit, aiDailyRateLimit, async (req: Request, res: Response) => {
   try {
     const { barcode } = req.body;
     if (!barcode || typeof barcode !== 'string') {
@@ -1430,7 +1449,7 @@ Return a JSON object with:
 });
 
 // API: Scan Receipt (Multimodal Gemini 3.8 Flash)
-app.post('/api/scan-receipt', async (req: Request, res: Response) => {
+app.post('/api/scan-receipt', aiBurstRateLimit, aiDailyRateLimit, async (req: Request, res: Response) => {
   try {
     const { imageBase64, mimeType = 'image/jpeg', measureMode, currency } = req.body;
     const currencyCode = typeof currency === 'string' && /^[A-Z]{3}$/.test(currency) ? currency : 'USD';
@@ -1539,7 +1558,7 @@ Return clean JSON matching the schema.`,
 });
 
 // API: Suggest Recipes (Gemini 3.8 Flash)
-app.post('/api/suggest-recipes', async (req: Request, res: Response) => {
+app.post('/api/suggest-recipes', aiBurstRateLimit, aiDailyRateLimit, async (req: Request, res: Response) => {
   try {
     const { inventory, mealType, cuisine, preferences, existingRecipeNames, measureMode } = req.body;
     const existingNames: string[] = Array.isArray(existingRecipeNames)
