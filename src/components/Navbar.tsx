@@ -21,11 +21,13 @@ import {
   Palette,
   DatabaseBackup,
   CalendarClock,
+  Cpu,
   X
 } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { CURRENCIES } from '../utils/currency';
 import { ThemeChoice } from '../utils/theme';
+import { useAuth } from '../context/AuthContext';
 
 export type ActiveTab = 'inventory' | 'recipes' | 'planner' | 'shopping' | 'analytics' | 'requests';
 
@@ -45,6 +47,7 @@ interface NavbarProps {
   requestsCount: number;
   onOpenHousehold: () => void;
   onOpenBackup: () => void;
+  onOpenAiStatus: () => void;
   onOpenConnect: () => void;
   theme: ThemeChoice;
   onChangeTheme: (theme: ThemeChoice) => void;
@@ -71,6 +74,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   requestsCount,
   onOpenHousehold,
   onOpenBackup,
+  onOpenAiStatus,
   onOpenConnect,
   theme,
   onChangeTheme,
@@ -88,6 +92,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [menuOpen]);
+  const { role } = useAuth();
   const closeAnd = (fn?: () => void) => () => { setMenuOpen(false); fn?.(); };
 
   return (
@@ -148,6 +153,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <DatabaseBackup className="w-4 h-4 text-emerald-700 shrink-0" />
                     <span>Backup &amp; data</span>
                   </button>
+                  {role === 'admin' && (
+                    <button
+                      onClick={closeAnd(onOpenAiStatus)}
+                      className="w-full flex items-center space-x-2.5 px-3 py-2.5 rounded-xl text-sm font-medium text-stone-800 hover:bg-stone-100 text-left"
+                    >
+                      <Cpu className="w-4 h-4 text-emerald-700 shrink-0" />
+                      <span>AI status</span>
+                    </button>
+                  )}
 
                   <label className="flex items-center justify-between gap-3 px-3 py-2 text-sm text-stone-700">
                     <span className="flex items-center space-x-2.5">

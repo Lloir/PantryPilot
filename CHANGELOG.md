@@ -21,6 +21,19 @@
 - Calendar exports now correctly escape semicolons, and malformed backup/import records are rejected before restore.
 - Added HTTP integration coverage for authentication, revision conflicts, backup preview/restore, and legacy/current import validation.
 
+## 2026-10-19
+
+### Added
+- **Local AI support.** Receipt scanning, AI recipes, recipe reading and barcode guesses can now use an AI on your own server: Ollama (`OLLAMA_MODEL`, `OLLAMA_URL`, optional `OLLAMA_VISION_MODEL`) or any OpenAI-compatible server such as LM Studio or llama.cpp (`LLM_BASE_URL`, `LLM_MODEL`). Receipt photos go to a vision model.
+- Several AIs can be combined: a local one is tried first and Gemini is the backup (`AI_PROVIDER=ollama,gemini` to choose the order).
+- **AI status** in the menu (admins): shows which AI is used, whether its models are installed and can see images, and a "Test the AI" button.
+- Local-model care: answers wrapped in text or code fences are still understood, one automatic retry on unusable output, bigger context, long time limit, and models that return incomplete recipes are filtered out.
+- Unraid template and compose file: local AI fields and the `host.docker.internal` setting.
+
+### Changed
+- AI errors tell people what kind of problem it was (not reachable, too slow, model not installed, model cannot read images) without showing server addresses.
+- Wording no longer says "Gemini" where any AI is used. `/api/health` reports `hasAi` and `aiProviders`.
+
 ## 2026-10-13
 
 ### Fixed

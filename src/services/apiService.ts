@@ -195,3 +195,21 @@ export async function saveNotifyApi(cfg: Omit<NotifyConfig, 'lastSent'>): Promis
 export async function testNotifyApi(url: string, format: 'ntfy' | 'json'): Promise<void> {
   await jsonOrThrow(await fetch('/api/notify/test', jsonInit('POST', { url, format })), 'Could not send the test');
 }
+
+export interface AiProviderStatus {
+  provider: 'gemini' | 'ollama' | 'openai';
+  ok: boolean;
+  model: string;
+  visionModel: string;
+  messages: string[];
+  installed?: string[];
+}
+export interface AiStatus { enabled: boolean; order: string[]; providers: AiProviderStatus[] }
+export async function fetchAiStatusApi(): Promise<AiStatus> {
+  return jsonOrThrow<AiStatus>(await fetch('/api/ai/status'), 'Could not check the AI');
+}
+export async function testAiApi(): Promise<{ ok: boolean; seconds?: number; error?: string }> {
+  const response = await fetch('/api/ai/test', jsonInit('POST'));
+  const data = await response.json().catch(() => ({}));
+  return response.ok ? data : { ok: false, error: data.error || 'The AI did not answer' };
+}

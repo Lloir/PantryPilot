@@ -153,7 +153,7 @@ export interface BarcodeLookupResult {
   confidence?: string;
   nutrition?: ItemNutrition;
   allergens?: string[];
-  source?: string; // saved | local_database | open_food_facts | barcodelookup_com | upcitemdb | gemini_guess | not_found
+  source?: string; // saved | local_database | open_food_facts | barcodelookup_com | upcitemdb | ai_guess | not_found
 }
 
 export interface PurchaseLog {

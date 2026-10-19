@@ -46,15 +46,75 @@ Then go to `http://localhost:3000`. Done. 🎉
 
 ---
 
-## 🤖 Do I need a Gemini key?
+## 🤖 Do I need an AI?
 
-**No.** The app works without it.
+**No.** The app works without it. An AI just turns on the extras: **receipt scanning**, AI recipe
+ideas, reading a pasted recipe, and a last-resort guess for unknown barcodes.
 
-A key just turns on the AI extras (smarter receipt scanning, recipe ideas).
-Get a free one at https://aistudio.google.com/apikey, then:
+You can use a **cloud** AI (Google Gemini) or one that runs **on your own server** (Ollama, LM Studio,
+llama.cpp...). Nothing leaves your network with a local one.
+
+### Option A: Google Gemini (cloud)
+
+Get a free key at https://aistudio.google.com/apikey, then:
 
 - **Unraid:** paste it in the **Gemini API Key** box when adding the container.
 - **Docker:** add `-e GEMINI_API_KEY=your_key_here` to the command above.
+
+### Option B: a local AI with Ollama
+
+1. Install [Ollama](https://ollama.com) on your server and pull a model **that can read images**
+   (search the Ollama library for models tagged *vision*, for example `qwen2.5vl`, `llama3.2-vision`,
+   `gemma3` or `minicpm-v`):
+
+   ```bash
+   ollama pull qwen2.5vl
+   ```
+
+2. Tell PantryPal where it is. Add these to the container:
+
+   | Variable | What it does |
+   |---|---|
+   | `OLLAMA_MODEL` | The model to use, e.g. `qwen2.5vl`. **Setting this turns the local AI on.** |
+   | `OLLAMA_URL` | Where Ollama is. Default `http://host.docker.internal:11434` (Ollama on the same machine). |
+   | `OLLAMA_VISION_MODEL` | Optional. A different model just for receipt photos, if `OLLAMA_MODEL` can't see images (e.g. a small text model for recipes and a vision model for receipts). |
+   | `OLLAMA_NUM_CTX` | Optional. Context size, default `8192` (Ollama's own default is too small for receipts). |
+   | `OLLAMA_TIMEOUT_MS` | Optional. How long to wait, default `300000` (5 minutes). A model on a CPU can be slow. |
+   | `OLLAMA_KEEP_ALIVE` | Optional. How long the model stays in memory, default `10m`. |
+   | `OLLAMA_API_KEY` | Optional. Only if your Ollama sits behind a proxy that wants a key. |
+
+3. **Docker on Linux/Unraid:** the container needs to be able to reach the host. Add
+   `--add-host=host.docker.internal:host-gateway` (Unraid: **Extra Parameters**; compose: `extra_hosts`),
+   or set `OLLAMA_URL` to the server's address, like `http://192.168.1.10:11434`. Ollama listens on
+   `127.0.0.1` by default; if it runs outside Docker set `OLLAMA_HOST=0.0.0.0` for Ollama so the container can reach it.
+
+```bash
+docker run -d --name pantrypal --restart unless-stopped -p 3000:3000 -p 3443:3443 \
+  --add-host=host.docker.internal:host-gateway \
+  -e OLLAMA_MODEL=qwen2.5vl \
+  -v pantrypal-data:/app/data ghcr.io/lloir/pantrypilot:latest
+```
+
+### Option C: LM Studio, llama.cpp, vLLM, LocalAI (any OpenAI-compatible server)
+
+| Variable | What it does |
+|---|---|
+| `LLM_BASE_URL` | The server's API address, e.g. `http://192.168.1.10:1234/v1`. |
+| `LLM_MODEL` | The model name the server lists. |
+| `LLM_VISION_MODEL` | Optional. A different model for receipt photos. |
+| `LLM_API_KEY` | Optional. |
+| `LLM_TIMEOUT_MS` | Optional. Default `300000`. |
+
+### Using more than one
+
+If several are set, the local one is tried first and Gemini is the backup. To choose the order yourself:
+`AI_PROVIDER=gemini,ollama` (names: `ollama`, `openai`, `gemini`). `GEMINI_MODEL` can pin a Gemini model name.
+
+### Check it works
+
+Open the menu and choose **AI status** (admins only). It shows which AI is in use, whether the models are
+installed on the server, and has a **Test the AI** button. For receipts, try one real receipt: small models
+are the most likely thing to misread a crumpled one, and a bigger vision model reads better than a small one.
 
 ---
 

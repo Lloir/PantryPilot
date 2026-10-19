@@ -30,6 +30,7 @@ import { HouseholdRequest } from './types';
 import { RequestsView } from './components/RequestsView';
 import { HouseholdModal } from './components/HouseholdModal';
 import { BackupModal } from './components/BackupModal';
+import { AiStatusModal } from './components/AiStatusModal';
 import { ConnectModal } from './components/ConnectModal';
 import { addRequestCommentApi, answerRequestApi, createRequestApi, deleteRequestApi, fetchRequestsApi } from './services/apiService';
 import { mergeIntoInventory, normalizeInventory, syncInventoryBatches, estimateCostFromPantry, todayISO, addDaysISO } from './utils/inventoryMerge';
@@ -71,6 +72,7 @@ export default function App() {
   const [isUnraidModalOpen, setIsUnraidModalOpen] = useState(false);
   const [isHouseholdOpen, setIsHouseholdOpen] = useState(false);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
+  const [isAiStatusOpen, setIsAiStatusOpen] = useState(false);
   const [isConnectOpen, setIsConnectOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -1142,6 +1144,7 @@ export default function App() {
         requestsCount={openRequestsCount}
         onOpenHousehold={() => setIsHouseholdOpen(true)}
         onOpenBackup={() => setIsBackupOpen(true)}
+        onOpenAiStatus={() => setIsAiStatusOpen(true)}
         onOpenConnect={() => setIsConnectOpen(true)}
         theme={theme}
         onChangeTheme={(t) => { setTheme(t); saveTheme(t); }}
@@ -1292,6 +1295,7 @@ export default function App() {
         onChangeAvoidList={guard(handleChangeAvoidList)}
       />
       <BackupModal isOpen={isBackupOpen} onClose={() => setIsBackupOpen(false)} />
+      <AiStatusModal isOpen={isAiStatusOpen} onClose={() => setIsAiStatusOpen(false)} />
       <ConnectModal isOpen={isConnectOpen} onClose={() => setIsConnectOpen(false)} />
 
       {/* Unraid OS & Docker Hosting Guide Modal */}

@@ -20,8 +20,20 @@ services:
       - HTTPS_HOSTNAMES=${HTTPS_HOSTNAMES:-}
       # Optional: Add your Gemini API key for smart receipt OCR & recipe generation
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # Optional: use a local AI (Ollama) instead. The model must be able to read images for receipts.
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-}
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-}
+      # Optional: any OpenAI-compatible local server (LM Studio, llama.cpp...)
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      # Optional: order to try AIs in, e.g. ollama,gemini
+      - AI_PROVIDER=${AI_PROVIDER:-}
       # Optional: number of trusted proxy hops or proxy IP/subnet(s), e.g. 1
       - TRUST_PROXY=${TRUST_PROXY:-}
+    extra_hosts:
+      # lets the container reach Ollama running on this machine
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 30s

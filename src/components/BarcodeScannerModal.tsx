@@ -91,7 +91,7 @@ const SOURCE_LABEL: Record<string, string> = {
   open_food_facts: 'Open Food Facts',
   barcodelookup_com: 'Barcode Lookup',
   upcitemdb: 'UPCitemdb',
-  gemini_guess: 'AI guess: please check the details',
+  ai_guess: 'AI guess: please check the details',
 };
 
 const daysBetween = (from: string, to: string) =>
@@ -219,7 +219,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     setQuantity(data.standardQuantity || 1);
     setUnit(normalizeUnit(data.standardUnit || 'count'));
     // Only a real recorded price is used; a guess or nothing leaves the box empty
-    setPrice(data.source !== 'gemini_guess' && data.averagePrice > 0 ? data.averagePrice : undefined);
+    setPrice(data.source !== 'ai_guess' && data.averagePrice > 0 ? data.averagePrice : undefined);
     setLocation(data.storageLocation || 'Pantry');
 
     const todayStr = todayISO();
@@ -463,7 +463,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   <Sparkles className="w-3 h-3" />
                   <span>
                     {SOURCE_LABEL[lookupResult.source ?? ''] ?? (lookupResult.foundInDatabase ? 'Database match' : 'Not found')}
-                    {lookupResult.averagePrice > 0 && lookupResult.source !== 'gemini_guess' ? ` · ${fmt(lookupResult.averagePrice)}` : ''}
+                    {lookupResult.averagePrice > 0 && lookupResult.source !== 'ai_guess' ? ` · ${fmt(lookupResult.averagePrice)}` : ''}
                   </span>
                 </span>
               )}
