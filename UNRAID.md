@@ -42,6 +42,7 @@ PantryPal is fully optimized for self-hosting on **Unraid OS** via Docker. It su
    - **WebUI Port**: `3000` (can map to any free port, e.g. `8085`)
    - **Appdata Storage**: `/mnt/user/appdata/pantrypal` $\rightarrow$ `/app/data`
    - **GEMINI_API_KEY**: *(Optional)* Your Gemini API key for receipt OCR & recipe AI.
+   - **OLLAMA_MODEL**: *(Optional)* Use a local AI instead. Needs an Ollama model that can read images, e.g. `qwen2.5vl`. Add `--add-host=host.docker.internal:host-gateway` to **Extra Parameters**, or set **OLLAMA_URL** to your Ollama server's address. See the README.
 5. Click **Apply**. Unraid will start the container. Access the app at `http://YOUR-UNRAID-IP:3000`.
 
 ---

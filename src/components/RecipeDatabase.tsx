@@ -431,7 +431,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
           <div>
             <div className="flex items-center space-x-2 text-emerald-200 text-xs font-semibold uppercase tracking-wider">
               <Sparkles className="w-4 h-4 text-emerald-300" />
-              <span>Gemini 3.8 Flash Chef</span>
+              <span>AI Chef</span>
             </div>
             <h3 className="text-base font-bold mt-1">Smart Recipe Ideation</h3>
             <p className="text-xs text-emerald-100/80 mt-1">
@@ -682,7 +682,7 @@ export const RecipeDatabase: React.FC<RecipeDatabaseProps> = ({
           <p className="text-xs text-stone-500 max-w-sm mx-auto">
             {selectedTags.length > 0 
               ? `No recipes currently match tag(s): "${selectedTags.join(', ')}". Try clearing tag filters or add custom tags to your recipes.`
-              : 'Try switching filter to "All Recipes" or click the Gemini AI button to generate brand new meals from your ingredients!'}
+              : 'Try switching filter to "All Recipes" or click the AI Chef button to generate brand new meals from your ingredients!'}
           </p>
           <div className="pt-2 flex justify-center gap-3">
             {selectedTags.length > 0 && (

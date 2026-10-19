@@ -78,7 +78,7 @@ export const ImportRecipeModal: React.FC<ImportRecipeModalProps> = ({ isOpen, on
               placeholder="Paste the recipe here: the ingredients and the method."
               className="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm"
             />
-            <p className="text-[11px] text-stone-500">Uses the AI (needs the Gemini key on the server) to read it into ingredients and steps.</p>
+            <p className="text-[11px] text-stone-500">Uses the AI (needs an AI set up on the server) to read it into ingredients and steps.</p>
           </div>
         )}
 

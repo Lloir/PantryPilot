@@ -316,7 +316,7 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
                 <span>Scan Grocery Receipt</span>
                 <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-semibold flex items-center space-x-1">
                   <Sparkles className="w-3 h-3" />
-                  <span>Gemini Multimodal OCR</span>
+                  <span>AI receipt reader</span>
                 </span>
               </h2>
               <p className="text-xs text-stone-500">
@@ -372,9 +372,9 @@ export const ReceiptScannerModal: React.FC<ReceiptScannerModalProps> = ({
                     <Sparkles className="w-8 h-8" />
                   </div>
                   <div>
-                    <h3 className="text-base font-semibold text-stone-900">Scanning receipt with Gemini Vision...</h3>
+                    <h3 className="text-base font-semibold text-stone-900">Reading the receipt with the AI...</h3>
                     <p className="text-xs text-stone-500 max-w-sm mx-auto mt-1">
-                      Extracting items, grocery categories, quantities, unit prices, and estimating food shelf lives.
+                      Extracting items, grocery categories, quantities, unit prices, and estimating food shelf lives. A local AI can take a minute or two.
                     </p>
                   </div>
                 </div>

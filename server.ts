@@ -11,13 +11,13 @@ import net from 'net';
 import os from 'os';
 import selfsigned from 'selfsigned';
 import { buildIcs } from './server-lib/ics';
+import { AiError, createLlm, friendlyAiError, loadLlmConfig } from './server-lib/llm';
 import { inventoryCsv } from './server-lib/csv';
 import { buildDigest } from './server-lib/notify';
 import { extractRecipeFromHtml, fetchPublicHtml, htmlToText } from './server-lib/recipeExtract';
 import { hashPassword, isPasswordHash, verifyPassword } from './server-lib/passwords';
 import { isValidPantryWrite, isValidSnapshot, summarizeSnapshot } from './server-lib/snapshot';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, Type } from '@google/genai';
 
 dotenv.config();
 
@@ -542,7 +542,9 @@ app.get('/api/health', (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     isProduction: isProd,
     httpsPort: HTTPS_PORT,
-    hasGeminiKey: Boolean(ai),
+    hasAi: llm.enabled,
+    aiProviders: llm.providers,
+    hasGeminiKey: Boolean(llm.config.gemini.apiKey),
   });
 });
 
@@ -631,41 +633,9 @@ const UNIT_RULES = {
 } as const;
 const unitRule = (mode: unknown) => (mode === 'volume' ? UNIT_RULES.volume : UNIT_RULES.mass);
 
-// Server-side Gemini initialization
-const apiKey = process.env.GEMINI_API_KEY;
-let ai: GoogleGenAI | null = null;
-if (apiKey) {
-  ai = new GoogleGenAI({ apiKey });
-}
-
-// Model names move around; try the configured one, then moving alias, then stable.
-const GEMINI_MODELS = [process.env.GEMINI_MODEL, 'gemini-flash-latest', 'gemini-2.5-flash'].filter(
-  (m, i, a): m is string => Boolean(m) && a.indexOf(m) === i,
-);
-let workingModel: string | null = null;
-async function generateWithFallback(params: any): Promise<any> {
-  if (!ai) throw new Error('AI is not configured');
-  const models = workingModel ? [workingModel, ...GEMINI_MODELS.filter(m => m !== workingModel)] : GEMINI_MODELS;
-  let lastErr: any;
-  for (const model of models) {
-    try {
-      const out = await ai.models.generateContent({
-        ...params,
-        config: { ...params.config, abortSignal: AbortSignal.timeout(45_000) },
-        model,
-      });
-      workingModel = model;
-      return out;
-    } catch (e: any) {
-      lastErr = e;
-      console.error(`Gemini call failed on ${model}:`, e?.message || e);
-      const msg = String(e?.message || '');
-      // Only try the next model when this one looks missing/unsupported
-      if (!/not found|404|not supported|unsupported|NOT_FOUND/i.test(msg)) break;
-    }
-  }
-  throw lastErr;
-}
+// AI: Gemini, a local Ollama server, or any OpenAI-compatible local server (see server-lib/llm.ts)
+const llm = createLlm(loadLlmConfig(process.env));
+console.log(llm.enabled ? `AI providers (in order): ${llm.providers.join(', ')}` : 'AI is not set up (set GEMINI_API_KEY, or OLLAMA_MODEL for a local model)');
 
 // In-memory barcode catalog
 const SERVER_BARCODE_DATABASE: Record<string, any> = {
@@ -1089,32 +1059,52 @@ app.post('/api/notify/test', requireAdmin, async (req: Request, res: Response) =
   }
 });
 
+// --- AI status (admin): what is configured, whether it can be reached, and a quick test ---
+const aiStatusRateLimit = keyedRequestLimit('ai-status', 60_000, 12);
+app.get('/api/ai/status', aiStatusRateLimit, requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    res.json({ enabled: llm.enabled, ...(await llm.status()) });
+  } catch (e) {
+    console.error('AI status failed:', e);
+    res.status(500).json({ error: 'Could not check the AI' });
+  }
+});
+app.post('/api/ai/test', aiStatusRateLimit, requireAdmin, async (_req: Request, res: Response) => {
+  const started = Date.now();
+  try {
+    const out = await llm.generateJson({
+      prompt: 'Reply with JSON saying ok is true and word is "pantry".',
+      schema: { type: 'object', properties: { ok: { type: 'boolean' }, word: { type: 'string' } }, required: ['ok', 'word'] },
+      maxTokens: 64,
+    });
+    res.json({ ok: Boolean(out?.ok), seconds: Math.round((Date.now() - started) / 100) / 10 });
+  } catch (e) {
+    console.error('AI test failed:', e);
+    res.status(502).json({ ok: false, error: e instanceof AiError ? e.message : 'The AI did not answer', code: e instanceof AiError ? e.code : undefined });
+  }
+});
+
 // --- Recipe import (from a link, or pasted text with the AI) ------------------
 async function parseRecipeTextWithAi(text: string) {
-  if (!ai) throw new Error('AI recipe reading needs a GEMINI_API_KEY set on the server');
-  const response = await generateWithFallback({
-    contents: `Extract the recipe from this text. Copy the ingredient lines as written (e.g. "1 1/2 cups flour"). If something is not stated, use null or an empty list; do not invent it.\n\n${text}`,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
+  const parsed = await llm.generateJson({
+    prompt: `Extract the recipe from this text. Copy the ingredient lines as written (e.g. "1 1/2 cups flour"). If something is not stated, use null or an empty list; do not invent it.\n\n${text}`,
+    schema: {
+        type: 'object',
         properties: {
-          name: { type: Type.STRING },
-          description: { type: Type.STRING },
-          servings: { type: Type.INTEGER },
-          prepMinutes: { type: Type.INTEGER },
-          cookMinutes: { type: Type.INTEGER },
-          ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
-          instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
-          cuisine: { type: Type.STRING },
-          category: { type: Type.STRING },
-          keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+          name: { type: 'string' },
+          description: { type: 'string' },
+          servings: { type: 'integer' },
+          prepMinutes: { type: 'integer' },
+          cookMinutes: { type: 'integer' },
+          ingredients: { type: 'array', items: { type: 'string' } },
+          instructions: { type: 'array', items: { type: 'string' } },
+          cuisine: { type: 'string' },
+          category: { type: 'string' },
+          keywords: { type: 'array', items: { type: 'string' } },
         },
         required: ['name', 'ingredients', 'instructions'],
       },
-    },
   });
-  const parsed = JSON.parse(response.text || '{}');
   if (!parsed.name || !Array.isArray(parsed.ingredients) || parsed.ingredients.length === 0) {
     throw new Error("Couldn't find a recipe in that text");
   }
@@ -1140,13 +1130,14 @@ app.post('/api/import-recipe', aiBurstRateLimit, aiDailyRateLimit, async (req: R
     const recipe = extractRecipeFromHtml(html);
     if (recipe) return res.json({ recipe: { ...recipe, sourceUrl: finalUrl }, via: 'page' });
     // No structured recipe on the page: let the AI read it, if it is set up
-    if (ai) {
+    if (llm.enabled) {
       const viaAi = await parseRecipeTextWithAi(htmlToText(html).slice(0, 15000));
       return res.json({ recipe: { ...viaAi, sourceUrl: finalUrl }, via: 'ai' });
     }
     res.status(404).json({ error: "That page doesn't include recipe details PantryPal can read. Try copying the recipe text instead." });
   } catch (e) {
     console.error('Recipe import failed:', e);
+    if (e instanceof AiError) return res.status(502).json({ error: friendlyAiError(e, 'read that recipe') });
     const msg = String((e as Error).message ?? '');
     const safeInputError = /That does not look like a web address|Only http and https|Links with a username|private network|Too many redirects|site answered with an error/i.test(msg);
     res.status(400).json({ error: safeInputError ? msg : "Couldn't open that link" });
@@ -1159,8 +1150,8 @@ app.post('/api/parse-recipe-text', aiBurstRateLimit, aiDailyRateLimit, async (re
   try {
     res.json({ recipe: await parseRecipeTextWithAi(text), via: 'ai' });
   } catch (e) {
-    console.error('Gemini recipe text parsing error:', e);
-    res.status(502).json({ error: 'The AI could not read that recipe. Try a clearer text and try again.' });
+    console.error('AI recipe text parsing error:', e);
+    res.status(e instanceof AiError && e.code === 'not_configured' ? 503 : 502).json({ error: friendlyAiError(e, 'read that recipe') });
   }
 });
 
@@ -1380,11 +1371,11 @@ app.post('/api/barcode-lookup', barcodeLookupRateLimit, aiBurstRateLimit, aiDail
       }
     }
 
-    // 2. If Gemini is available, query Gemini to identify or enrich the barcode
-    if (ai) {
+    // 2. If an AI is set up, ask it to identify the barcode
+    if (llm.enabled) {
       try {
-        const response = await generateWithFallback({
-          contents: `Look up or infer the grocery product for barcode / UPC code "${cleanBarcode}".
+        const parsed = await llm.generateJson({
+          prompt: `Look up or infer the grocery product for barcode / UPC code "${cleanBarcode}".
 Return a JSON object with:
 - name: realistic item name (e.g. "Honey Nut Cheerios Cereal")
 - brand: brand name if recognized or generic
@@ -1394,38 +1385,32 @@ Return a JSON object with:
 - standardUnit: unit like "oz", "lb", "count", "can", "bottle", "pack"
 - estimatedShelfLifeDays: integer days shelf life
 - storageLocation: one of ["Fridge", "Freezer", "Pantry", "Counter", "Spice Rack"]`,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
+          schema: {
+              type: 'object',
               properties: {
-                name: { type: Type.STRING },
-                brand: { type: Type.STRING },
-                category: { type: Type.STRING },
-                averagePrice: { type: Type.NUMBER },
-                standardQuantity: { type: Type.NUMBER },
-                standardUnit: { type: Type.STRING },
-                estimatedShelfLifeDays: { type: Type.INTEGER },
-                storageLocation: { type: Type.STRING },
+                name: { type: 'string' },
+                brand: { type: 'string' },
+                category: { type: 'string' },
+                averagePrice: { type: 'number' },
+                standardQuantity: { type: 'number' },
+                standardUnit: { type: 'string' },
+                estimatedShelfLifeDays: { type: 'integer' },
+                storageLocation: { type: 'string' },
               },
               required: ['name', 'category', 'averagePrice', 'standardQuantity', 'standardUnit', 'estimatedShelfLifeDays', 'storageLocation'],
-            },
           },
         });
-
-        const text = response.text;
-        if (text) {
-          const parsed = JSON.parse(text);
+        if (parsed && parsed.name) {
           res.json({
             barcode: cleanBarcode,
             ...parsed,
             foundInDatabase: true,
-            source: 'gemini_guess',
+            source: 'ai_guess',
           });
           return;
         }
       } catch (geminiErr) {
-        console.error('Gemini barcode lookup error:', geminiErr);
+        console.error('AI barcode lookup error:', geminiErr);
       }
     }
 
@@ -1448,7 +1433,7 @@ Return a JSON object with:
   }
 });
 
-// API: Scan Receipt (Multimodal Gemini 3.8 Flash)
+// API: Scan Receipt (reads the photo with a vision model: Gemini, Ollama or an OpenAI-compatible server)
 app.post('/api/scan-receipt', aiBurstRateLimit, aiDailyRateLimit, async (req: Request, res: Response) => {
   try {
     const { imageBase64, mimeType = 'image/jpeg', measureMode, currency } = req.body;
@@ -1462,22 +1447,14 @@ app.post('/api/scan-receipt', aiBurstRateLimit, aiDailyRateLimit, async (req: Re
     // Clean base64 prefix if present
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
 
-    if (!ai) {
-      res.status(503).json({ error: 'Receipt scanning needs a Gemini API key. Set GEMINI_API_KEY on the server and restart.' });
+    if (!llm.enabled) {
+      res.status(503).json({ error: 'Receipt scanning needs an AI. Set GEMINI_API_KEY (cloud) or OLLAMA_MODEL (local, needs a vision model) on the server and restart.' });
       return;
     }
     try {
-      const response = await generateWithFallback({
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType: mimeType,
-                data: cleanBase64,
-              },
-            },
-            {
-              text: `You are an expert grocery receipt OCR engine.
+      const parsed = await llm.generateJson({
+        image: { mimeType: typeof mimeType === 'string' && /^image\/[\w.+-]+$/.test(mimeType) ? mimeType : 'image/jpeg', base64: cleanBase64 },
+        prompt: `You are an expert grocery receipt OCR engine.
 Read this receipt photo carefully and extract EVERY line item, top to bottom. Never invent or guess items that are not printed. Receipt text may be abbreviated (e.g. "ORG BNLS CHKN BRST"): expand to a readable product name. Skip totals, payment, change, discounts-only lines and loyalty lines. Multi-buy lines (e.g. "2 @ 1.50") are one item with quantity 2. Weighed items use the weight as quantity.\nExtract all details from this receipt:
 1. Store name (e.g. "Trader Joe's", "Costco", "Whole Foods", "Kroger", "Safeway", or whatever is shown).
 2. Purchase date in YYYY-MM-DD format (if unclear, use today's date, ${new Date().toISOString().split('T')[0]}).
@@ -1493,48 +1470,38 @@ Read this receipt photo carefully and extract EVERY line item, top to bottom. Ne
    - barcode: optional UPC if visible
 5. rewardsPoints: loyalty / rewards points EARNED on this purchase, if the receipt prints them (e.g. "Points earned: 120", "Fuel points", "You earned 45 pts"). Use the points earned this trip, not the running balance. Omit if not shown.
 Return clean JSON matching the schema.`,
-            },
-          ],
-        },
-        config: {
-          temperature: 0,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
+        temperature: 0,
+        maxTokens: 8192,
+        schema: {
+            type: 'object',
             properties: {
-              storeName: { type: Type.STRING },
-              purchaseDate: { type: Type.STRING },
-              subtotal: { type: Type.NUMBER },
-              tax: { type: Type.NUMBER },
-              total: { type: Type.NUMBER },
-              rewardsPoints: { type: Type.INTEGER },
+              storeName: { type: 'string' },
+              purchaseDate: { type: 'string' },
+              subtotal: { type: 'number' },
+              tax: { type: 'number' },
+              total: { type: 'number' },
+              rewardsPoints: { type: 'integer' },
               items: {
-                type: Type.ARRAY,
+                type: 'array',
                 items: {
-                  type: Type.OBJECT,
+                  type: 'object',
                   properties: {
-                    name: { type: Type.STRING },
-                    category: { type: Type.STRING },
-                    quantity: { type: Type.NUMBER },
-                    unit: { type: Type.STRING },
-                    unitPrice: { type: Type.NUMBER },
-                    totalPrice: { type: Type.NUMBER },
-                    estimatedShelfLifeDays: { type: Type.INTEGER },
-                    barcode: { type: Type.STRING },
+                    name: { type: 'string' },
+                    category: { type: 'string' },
+                    quantity: { type: 'number' },
+                    unit: { type: 'string' },
+                    unitPrice: { type: 'number' },
+                    totalPrice: { type: 'number' },
+                    estimatedShelfLifeDays: { type: 'integer' },
+                    barcode: { type: 'string' },
                   },
                   required: ['name', 'category', 'quantity', 'unit', 'unitPrice', 'totalPrice', 'estimatedShelfLifeDays'],
                 },
               },
             },
             required: ['storeName', 'purchaseDate', 'total', 'items'],
-          },
         },
       });
-
-      const text = response.text;
-      if (!text) throw new Error('empty response');
-      const parsed = JSON.parse(text);
       const items = (parsed.items || []).filter((it: any) => it && String(it.name || '').trim());
       if (items.length === 0) {
         res.status(422).json({ error: 'No items could be read from that photo. Try a sharper, well-lit, flat photo of the whole receipt.' });
@@ -1543,12 +1510,12 @@ Return clean JSON matching the schema.`,
       res.json({
         ...parsed,
         items: items.map((it: any) => ({ ...it, selected: true })),
-        source: 'gemini_multimodal_vision',
+        source: 'ai_vision',
       });
       return;
-    } catch (geminiError: any) {
-      console.error('Gemini vision receipt parsing error:', geminiError);
-      res.status(502).json({ error: 'The AI could not read this receipt. Try a sharper photo or try again.' });
+    } catch (aiError: any) {
+      console.error('AI receipt parsing error:', aiError);
+      res.status(502).json({ error: friendlyAiError(aiError, 'read this receipt') });
       return;
     }
   } catch (err: any) {
@@ -1557,7 +1524,7 @@ Return clean JSON matching the schema.`,
   }
 });
 
-// API: Suggest Recipes (Gemini 3.8 Flash)
+// API: Suggest Recipes
 app.post('/api/suggest-recipes', aiBurstRateLimit, aiDailyRateLimit, async (req: Request, res: Response) => {
   try {
     const { inventory, mealType, cuisine, preferences, existingRecipeNames, measureMode } = req.body;
@@ -1570,7 +1537,8 @@ app.post('/api/suggest-recipes', aiBurstRateLimit, aiDailyRateLimit, async (req:
       return;
     }
 
-    if (ai) {
+    let aiFailure: unknown;
+    if (llm.enabled) {
       try {
         const inventorySummary = inventory.map(item =>
           `- ${item.name} (${item.quantity} ${item.unit}, exp: ${item.expirationDate || 'N/A'}, cat: ${item.category})`
@@ -1595,52 +1563,51 @@ Generate 2 to 3 delicious, realistic recipes that:
 7. Every recipe must be clearly different from the others you return.
 ${existingNames.length ? `8. The user already has these recipes, so do NOT suggest them or close variations of them:\n${existingNames.map(n => `- ${n}`).join('\n')}` : ''}`;
 
-        const response = await generateWithFallback({
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.ARRAY,
+        const parsedRecipes = await llm.generateJson({
+          prompt,
+          maxTokens: 8192,
+          schema: {
+              type: 'array',
               items: {
-                type: Type.OBJECT,
+                type: 'object',
                 properties: {
-                  name: { type: Type.STRING },
-                  description: { type: Type.STRING },
-                  mealType: { type: Type.STRING },
-                  cuisine: { type: Type.STRING },
-                  servings: { type: Type.INTEGER },
-                  prepTimeMinutes: { type: Type.INTEGER },
-                  cookTimeMinutes: { type: Type.INTEGER },
-                  tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  name: { type: 'string' },
+                  description: { type: 'string' },
+                  mealType: { type: 'string' },
+                  cuisine: { type: 'string' },
+                  servings: { type: 'integer' },
+                  prepTimeMinutes: { type: 'integer' },
+                  cookTimeMinutes: { type: 'integer' },
+                  tags: { type: 'array', items: { type: 'string' } },
                   ingredients: {
-                    type: Type.ARRAY,
+                    type: 'array',
                     items: {
-                      type: Type.OBJECT,
+                      type: 'object',
                       properties: {
-                        name: { type: Type.STRING },
-                        quantity: { type: Type.NUMBER },
-                        unit: { type: Type.STRING },
+                        name: { type: 'string' },
+                        quantity: { type: 'number' },
+                        unit: { type: 'string' },
                       },
                       required: ['name', 'quantity', 'unit'],
                     },
                   },
                   instructions: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
+                    type: 'array',
+                    items: { type: 'string' },
                   },
                 },
                 required: ['name', 'description', 'mealType', 'cuisine', 'servings', 'prepTimeMinutes', 'cookTimeMinutes', 'ingredients', 'instructions', 'tags'],
               },
             },
-          },
         });
 
-        const text = response.text;
-        if (text) {
-          const parsedRecipes = JSON.parse(text);
+        if (Array.isArray(parsedRecipes)) {
           // Drop repeats of recipes the user already has and repeats within this batch
           const seenNames = new Set(existingNames.map(n => n.toLowerCase().trim()));
           const recipes = parsedRecipes.filter((r: any) => {
+            // Smaller local models sometimes leave out lists; skip recipes that can't be cooked
+            if (!r || !Array.isArray(r.ingredients) || !Array.isArray(r.instructions) || r.ingredients.length === 0) return false;
+            r.tags = Array.isArray(r.tags) ? r.tags : [];
             const key = String(r.name || '').toLowerCase().trim();
             if (!key || seenNames.has(key)) return false;
             seenNames.add(key);
@@ -1655,16 +1622,17 @@ ${existingNames.length ? `8. The user already has these recipes, so do NOT sugge
           res.json({ recipes: formattedRecipes });
           return;
         }
-      } catch (geminiError) {
-        console.error('Gemini recipe suggestion error:', geminiError);
+      } catch (aiError) {
+        console.error('AI recipe suggestion error:', aiError);
+        aiFailure = aiError;
       }
     }
 
     // No canned recipe: returning the same fallback every click is what produced duplicates
     res.status(503).json({
-      error: ai
-        ? 'The AI could not generate recipes right now. Please try again.'
-        : 'AI recipes need a GEMINI_API_KEY set on the server.',
+      error: llm.enabled
+        ? friendlyAiError(aiFailure, 'generate recipes')
+        : 'AI recipes need an AI set up on the server (GEMINI_API_KEY, or OLLAMA_MODEL for a local model).',
     });
   } catch (err: any) {
     console.error('Error in suggest-recipes:', err);
